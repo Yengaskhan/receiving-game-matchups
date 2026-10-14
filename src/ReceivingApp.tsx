@@ -131,8 +131,8 @@ export default function ReceivingApp() {
                   <li>Each split (man, zone, single-high, two-high, Cover 2/3/4/6) is shrunk toward the player's own overall rate, scaled by how that coverage plays league-wide, so a 15-route split moves him only a little.</li>
                   <li>Splits are compared as an index vs the league rate in that same coverage (1.00 = league average); raw rates are never compared across coverages.</li>
                   <li>Coverage fit = his expected FP per route given this defense's coverage mix, vs given the league's mix.</li>
-                  <li>Defense side: FP allowed per dropback given its own coverage mix, and FP allowed to his alignments (TEs: FP allowed to TEs), shrunk toward average by games played.</li>
-                  <li>Matchup Score = percentile of the matchup multiplier among this week's scheduled matchups for players with {core.meta.model.score_ref_min_routes}+ routes. 50 = neutral. It measures the matchup, not the player.</li>
+                  <li>Defense side: FP allowed where he lines up (outside or slot WRs; TEs for TEs), and FP per dropback allowed to WRs and TEs combined given its coverage mix, each shrunk toward average by games played.</li>
+                  <li>Matchup Score blends three parts, each standardized: coverage fit 45%, FP allowed where he lines up 35%, FP per dropback allowed 20%. No part counts for more than 2 SDs. It's ranked within position (WRs vs WRs, TEs vs TEs) among this week's matchups for players with {core.meta.model.score_ref_min_routes}+ routes. 50 = neutral. It measures the matchup, not the player.</li>
                   <li>Splits under {core.meta.model.low_sample_routes} routes are flagged “low n”. SEP MS, ADOR, +1/+2/+3 Rate and Neg Rate aren't defined by the source, so they're shown for reference only.</li>
                 </ul>
                 <ul className="list-disc space-y-1 pl-5">

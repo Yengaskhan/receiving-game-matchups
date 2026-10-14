@@ -130,14 +130,23 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         opp[g["home"]] = (g["away"], True, g["game_id"])
     byes = sorted(set(defenses) - set(opp))
 
-    # Matchup Score: percentile of ratio among this week's scheduled pairs (players with enough routes).
+    # Matchup Score: blend of standardized coverage fit and FP allowed to his position, as a percentile
+    # among this week's scheduled pairs at his position (players with enough routes).
     minr = M.MODEL["score_ref_min_routes"]
-    ref = sorted(pairs[opp[p["TEAM_NFL"]][0]][p["id"]]["ratio"] for p in players if p["TEAM_NFL"] in opp and p["OVERALL_RTE"] >= minr)
-    if len(ref) < 50:
-        raise FormatError(f"only {len(ref)} scheduled player-opponent pairs with {minr}+ routes in week {week}; check the schedule.")
+    pos_of = {p["id"]: p["POS"] for p in players}
+    scales = {}
+    for pos in POSITIONS:
+        ref_parts = [M.score_parts(pairs[opp[p["TEAM_NFL"]][0]][p["id"]]) for p in players
+                     if p["POS"] == pos and p["TEAM_NFL"] in opp and p["OVERALL_RTE"] >= minr]
+        if len(ref_parts) < 15:
+            raise FormatError(f"only {len(ref_parts)} scheduled {pos}s with {minr}+ routes in week {week}; check the schedule.")
+        scales[pos] = M.score_scale(ref_parts)
     for t, rows in pairs.items():
         for pid, m in rows.items():
-            m["score"] = round(M.percentile(m["ratio"], ref))
+            sc = scales[pos_of[pid]]
+            m["parts"] = M.score_parts(m)
+            m["composite"] = sc.composite(m["parts"])
+            m["score"] = round(M.percentile(m["composite"], sc.ref))
 
     by_id = {p["id"]: p for p in players}
 
@@ -145,11 +154,12 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         m = pairs[t][pid]
         p = by_id[pid]
         return {
-            "player": pid, "defense": t, "score": m["score"], "proj": m["proj"], "fp_rr": m["fp_rr"], "ratio": m["ratio"],
+            "player": pid, "defense": t, "score": m["score"], "composite": m["composite"], "parts": m["parts"],
+            "proj": m["proj"], "fp_rr": m["fp_rr"], "ratio": m["ratio"],
             "fit": m["fit"], "base_fit": m["base_fit"], "zone_fit": m["zone_fit"],
             "axes": {k: {"fit": a["fit"], "def": a["def"], "league": a["league"]} for k, a in m["axes"].items()},
             "cov_index": m["cov_index"], "align_index": m["align_index"], "align_weights": m["align_weights"],
-            "reasons": M.reasons(p, profs[pid], m, t, defenses[t], dprofs[t], lg, ranks),
+            "reasons": M.reasons(p, profs[pid], m, t, defenses[t], dprofs[t], lg, ranks, scales[p["POS"]]),
             "flags": M.flags(p, profs[pid], t, defenses[t], lg),
         }
 
@@ -216,18 +226,19 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         rows.append({"player": p["id"], "name": p["NAME"], "team": p["TEAM_NFL"], "pos": p["POS"], "opponent": o[0], "home": o[1],
                      "game_id": o[2], "routes": p["OVERALL_RTE"], "routes_pg": p["OVERALL_RTE"] / p["G"] if p["G"] else 0,
                      "score": po["score"], "proj": po["proj"], "fp_rr": po["fp_rr"], "adj_fp_rr": profs[p["id"]]["adj_overall"],
-                     "fit": po["fit"], "cov_index": po["cov_index"], "align_index": po["align_index"],
+                     "fit": po["fit"], "cov_index": po["cov_index"], "align_index": po["align_index"], "parts": po["parts"],
                      "reasons": po["reasons"], "flags": po["flags"]})
     rows.sort(key=lambda r: (-r["score"], -r["proj"]))
 
     # Validation of the model output (stops the run)
-    scored = [r for r in rows if r["routes"] >= minr]
-    if any(r["score"] is None for r in scored):
-        raise FormatError("a player with 50+ routes has no Matchup Score.")
-    mean = sum(r["score"] for r in scored) / len(scored)
-    if not 40 <= mean <= 60:
-        raise FormatError(f"Matchup Scores are off-centre: mean {mean:.1f} for players with {minr}+ routes (expected near 50).")
-    checks.append(f"Matchup Score mean {mean:.1f} across {len(scored)} scheduled players with {minr}+ routes; none blank")
+    for pos in POSITIONS:
+        scored = [r for r in rows if r["routes"] >= minr and r["pos"] == pos]
+        if any(r["score"] is None for r in scored):
+            raise FormatError(f"a {pos} with {minr}+ routes has no Matchup Score.")
+        mean = sum(r["score"] for r in scored) / len(scored)
+        if not 40 <= mean <= 60:
+            raise FormatError(f"{pos} Matchup Scores are off-centre: mean {mean:.1f} for {minr}+ route players (expected near 50).")
+        checks.append(f"{pos} Matchup Score mean {mean:.1f} across {len(scored)} scheduled {pos}s with {minr}+ routes; none blank")
 
     as_of = max(e.exported_at for e in ex.values())
     meta = {
@@ -245,7 +256,8 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
     }
     week_out = {
         "schema": SCHEMA_VERSION, "season": season, "week": week, "data_as_of": as_of, "generated_at": meta["generated_at"],
-        "games": games, "byes": byes, "ref_size": len(ref), "rows": rows,
+        "games": games, "byes": byes, "ref_size": {pos: len(sc.ref) for pos, sc in scales.items()},
+        "score_scale": {pos: {"mean": sc.mean, "sd": sc.sd} for pos, sc in scales.items()}, "rows": rows,
     }
     return {"meta": meta, "players": players_out, "defenses": defenses_out, "pairs": pair_files, "week": week_out,
             "_debug": {"rows": rows}}

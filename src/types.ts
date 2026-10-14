@@ -56,6 +56,8 @@ export interface Pair {
   zone_fit: number;
   axes: Record<string, { fit: number; def: number; league: number }>;
   cov_index: number;
+  /** Score parts on a log scale (0 = neutral): coverage fit, FP allowed where he lines up, FP per dropback allowed. */
+  parts: { coverage: number; alignment: number; ppd: number };
   align_index: number;
   align_weights: Record<string, number>;
   reasons: Reason[];
@@ -101,6 +103,8 @@ export interface SlateRow {
   adj_fp_rr: number;
   fit: number;
   cov_index: number;
+  /** Score parts on a log scale (0 = neutral): coverage fit, FP allowed where he lines up, FP per dropback allowed. */
+  parts: { coverage: number; alignment: number; ppd: number };
   align_index: number;
   reasons: Reason[];
   flags: Flag[];
@@ -114,7 +118,7 @@ export interface WeekFile {
   generated_at: string;
   games: { game_id: string; away: string; home: string; gameday: string; gametime: string | null }[];
   byes: string[];
-  ref_size: number;
+  ref_size: Record<Pos, number>;
   rows: SlateRow[];
 }
 

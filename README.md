@@ -97,9 +97,9 @@ The loader is `pipeline/receiving/load.py`; settings are in `pipeline/receiving/
   - Cover 2/3/4/6 routes add up to Zone routes for every player
   - team-defense MAN/ZONE/1-HIGH % agree with the coverage matrix within 0.5 points
   - Cover 2/3/4/6 % add up to ZONE % within 1 point
-  - at least 50 scheduled matchups with 50+ routes
+  - at least 15 scheduled WRs and 15 scheduled TEs with 50+ routes
   - no blank score for a 50+ route player
-  - mean Matchup Score between 40 and 60
+  - mean Matchup Score between 40 and 60, for WRs and TEs separately
 
 ## The matchup model
 
@@ -171,24 +171,33 @@ every defensive index is shrunk:  1 + G / (G + 4) × (index − 1)
 ### Step 5: Projection and score
 
 ```
-ratio            = coverage_fit^1.0 × cov_allowed^0.5 × align_allowed^0.5
-matchup FP/RR    = adj_overall_FP_RR × ratio
+matchup FP/RR    = adj_overall_FP_RR × coverage_fit^1.0 × align_allowed^0.5 × cov_allowed^0.25
 projection (PPR) = (RTE / G) × matchup FP/RR        ← "matchup-adjusted projection", not a full projection
-Matchup Score    = percentile of ratio among the week's scheduled matchups for players with 50+ routes
+
+parts            = coverage:  ln(coverage_fit)
+                   alignment: ln(align_allowed)      (outside/slot WRs by his route share; TEs: FP allowed to TEs)
+                   ppd:       ln(cov_allowed)        (FP per dropback to WRs and TEs combined, given its coverage mix)
+z_part           = (part − mean) / SD over the reference set, capped at ±2
+composite        = 0.45 × z_coverage + 0.35 × z_alignment + 0.20 × z_ppd
+Matchup Score    = percentile of composite among this week's scheduled matchups at his position (WR or TE), 50+ routes
 ```
 
-- **Score scale:** 50 = neutral. The score measures the matchup, not the player.
+- **Weight order:** coverage matters most, then where he lines up, then points per dropback.
+  - Points per dropback is last because the export lumps WRs and TEs together, so it can't tell them apart.
+  - Each part is standardized first, so the weights mean what they say. On raw multipliers, the defense-side numbers vary about five times more than coverage fit and would drown it out.
+- **The ±2 SD cap** keeps one outlier, like the league's worst pass defense, from outweighing the other parts.
+- **Ranked within position:** a WR's score compares him only with WRs, and a TE's only with TEs. 50 = neutral. The score measures the matchup, not the player.
 - **Percentile method:** the mid-rank percentile, rounded.
-- **Opponents outside the schedule** (picked in the Player vs Defense tab) are scored against the same weekly reference set.
+- **Opponents outside the schedule** (picked in the Player vs Defense tab) are scored against the same weekly reference set for his position.
 - **Players under 50 routes** are scored too, but shown with a dashed "small sample" badge.
 - **Score bands** match the RB report's Run Edge: 70+ great, 58+ good, 43–57 neutral, 31–42 tough, 30 or below very tough.
 
 ### Reasons and context flags
 
-- **Reasons:** up to 3 per matchup, from the largest contributors by |log effect|, and only those of at least 0.01. Candidates:
-  - each fit axis, phrased around the side the defense leans to vs league, e.g. "NE plays man on 35% of dropbacks (league 22%); his man FP/RR is 0.81 vs his overall 0.49."
-  - the zone-detail layer
-  - coverage-weighted FP allowed
+- **Reasons:** up to 3 per matchup, from the parts that move the score most (in score units, capped like the score), and only those worth at least 0.05. Candidates:
+  - each fit axis, phrased around the side the defense leans to vs league, e.g. "NE plays man on 35% of dropbacks (league 22%); he's better vs man (2.22x league FP/RR) than vs zone (1.23x)."
+  - the zone-detail layer, naming the Cover 2/3/4/6 that moves his zone fit most
+  - FP per dropback allowed to WRs and TEs
   - alignment or TE FP allowed, e.g. "Allows 30.5 FPG to outside WRs (3rd most); he runs 79% of routes outside."
 - **Context flags** (no effect on the score) appear for:
   - blitz %, press % (any) or disguise % at least 5 points from league (disguise is flagged only when high)

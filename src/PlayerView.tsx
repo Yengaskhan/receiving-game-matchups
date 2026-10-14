@@ -85,9 +85,9 @@ export function PlayerView({ core, season, week, hash, update }: { core: Core; s
       {pair && <HeaderCards p={player} pair={pair} />}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-        <CoverageChart p={player} d={d} />
+        <CoverageChart p={player} d={d} L={core.meta.league.defense} />
         <div className="space-y-4">
-          {pair && <Reasons pair={pair} />}
+          {pair && <Reasons p={player} pair={pair} />}
           <AlignmentPanel p={player} d={d} pair={pair} />
         </div>
       </div>
@@ -179,7 +179,7 @@ function HeaderCards({ p, pair }: { p: Player; pair: Pair }) {
   const top = edge ?? concern;
   return (
     <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-      <Card label="Matchup Score" sub={p.routes < 50 ? 'Small sample: under 50 routes' : '50 = neutral matchup'}>
+      <Card label="Matchup Score" sub={`Ranked among ${p.pos}s this week; 50 = neutral${p.routes < 50 ? ' · small sample (under 50 routes)' : ''}`}>
         <ScoreBadge score={pair.score} small={p.routes < 50} lg />
       </Card>
       <Card label="Matchup-adjusted projection" sub={`${n1(p.routes_pg)} routes × ${n3(pair.fp_rr)} FP/RR (his adj. ${n3(p.overall.adj_fp_rr)})`}>
@@ -195,9 +195,9 @@ function HeaderCards({ p, pair }: { p: Player; pair: Pair }) {
   );
 }
 
-function Reasons({ pair }: { pair: Pair }) {
+function Reasons({ p, pair }: { p: Player; pair: Pair }) {
   return (
-    <Panel title="Why" note={`fit ${n2(pair.fit)} · coverage allowed ${n2(pair.cov_index)} · alignment allowed ${n2(pair.align_index)}`}>
+    <Panel title="Why" note={`coverage fit ${n2(pair.fit)} · ${p.pos === 'TE' ? 'TE' : 'alignment'} allowed ${n2(pair.align_index)} · FP/dropback allowed ${n2(pair.cov_index)}`}>
       <ul className="space-y-1.5 text-[12.5px]">
         {pair.reasons.map((r) => (
           <li key={r.text} className="flex gap-2">
@@ -207,6 +207,9 @@ function Reasons({ pair }: { pair: Pair }) {
         ))}
         {pair.reasons.length === 0 && <li className="text-ink-3">A neutral matchup: no factor moves it much.</li>}
       </ul>
+      <p className="mt-3 text-[11px] text-ink-3">
+        Score weights: coverage fit 45% · points allowed {p.pos === 'TE' ? 'to TEs' : 'where he lines up'} 35% · points per dropback allowed to WRs and TEs 20%.
+      </p>
       {pair.flags.length > 0 && (
         <>
           <p className="mt-3 text-[10.5px] font-medium uppercase tracking-wider text-ink-3">Context (no effect on the score)</p>
@@ -221,8 +224,27 @@ function Reasons({ pair }: { pair: Pair }) {
   );
 }
 
-function CoverageChart({ p, d }: { p: Player; d: Defense }) {
+function CoverageChart({ p, d, L }: { p: Player; d: Defense; L: Record<string, number> }) {
   const cov = new Map(d.coverage.map((c) => [c.key, c]));
+  // Edge / concern compare each coverage with his own level, the same yardstick as coverage fit:
+  // his expected rate against the league's mix of the coverages on that row's axis.
+  const fp = (k: CoverageKey) => p.splits[k].metrics.FP_RR!.adj;
+  const wr = (k: CoverageKey) => p.splits[k].metrics.WIN_RATE!.index ?? 1;
+  const mix = (a: number, b: number) => [a / (a + b), b / (a + b)];
+  const [lm, lz] = mix(L.MAN_PCT, L.ZONE_PCT);
+  const [l1, l2] = mix(L.ONE_HI_PCT, L.TWO_HI_PCT);
+  const zoneTot = L.COVER_2_PCT + L.COVER_3_PCT + L.COVER_4_PCT + L.COVER_6_PCT;
+  const zoneBase = (['C2', 'C3', 'C4', 'C6'] as CoverageKey[]).reduce((s, k) => s + (L[`COVER_${k.slice(1)}_PCT`] / zoneTot) * wr(k), 0);
+  const own: Record<string, { mine: number; base: number }> = {
+    MAN: { mine: fp('MAN'), base: lm * fp('MAN') + lz * fp('ZONE') },
+    ZONE: { mine: fp('ZONE'), base: lm * fp('MAN') + lz * fp('ZONE') },
+    SINGLE_HIGH: { mine: fp('SINGLE_HIGH'), base: l1 * fp('SINGLE_HIGH') + l2 * fp('TWO_HIGH') },
+    TWO_HIGH: { mine: fp('TWO_HIGH'), base: l1 * fp('SINGLE_HIGH') + l2 * fp('TWO_HIGH') },
+    C2: { mine: wr('C2'), base: zoneBase },
+    C3: { mine: wr('C3'), base: zoneBase },
+    C4: { mine: wr('C4'), base: zoneBase },
+    C6: { mine: wr('C6'), base: zoneBase },
+  };
   return (
     <Panel title={`${d.team} coverage vs ${p.name}`} note="Left: how much more (or less) this defense plays it than the league. Right: his index vs league in it.">
       <div className="grid grid-cols-[6.5rem_minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-3 gap-y-1.5 text-[12px] sm:grid-cols-[7.5rem_minmax(0,1fr)_minmax(0,1fr)_4.5rem]">
@@ -237,7 +259,9 @@ function CoverageChart({ p, d }: { p: Player; d: Defense }) {
           const diff = u.pct - u.league;
           const ix = m.index ?? 1;
           const above = diff > 0.5;
-          const tag = above && ix > 1.0 ? 'edge' : above && ix < 1.0 ? 'concern' : null;
+          const o = own[c.key];
+          const rel = o.mine / o.base;
+          const tag = above && rel > 1.02 ? 'edge' : above && rel < 0.98 ? 'concern' : null;
           const routes = c.metric === 'FP_RR' ? s.routes : (s.sep_routes ?? s.routes);
           return (
             <div key={c.key} className={`contents ${i === 4 ? '[&>*]:mt-2' : ''}`}>
@@ -262,7 +286,7 @@ function CoverageChart({ p, d }: { p: Player; d: Defense }) {
         })}
       </div>
       <p className="mt-3 text-[11px] text-ink-3">
-        Edge: the defense plays it more than league and he's above league in it. Concern: plays it more, and he's below. Indexes are after shrinkage; Cover 2/3/4/6 have no FP split, so they use win rate. Cover 0/1/2 Man are covered by the Man row.
+        Edge: the defense plays it more than league and it's one of his better coverages (above his own average across that axis). Concern: plays it more, and it's one of his weaker ones. Bars show his index vs league, after shrinkage; Cover 2/3/4/6 have no FP split, so they use win rate. Cover 0/1/2 Man are covered by the Man row.
       </p>
     </Panel>
   );

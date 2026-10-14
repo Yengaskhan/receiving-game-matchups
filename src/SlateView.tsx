@@ -94,7 +94,7 @@ export function SlateView({ index, hash, update }: { index: SeasonIndex; hash: H
             ))}
             <span className="ml-2">
               {week.games.length} games · {formatDate(week.games[0]?.gameday)} – {formatDate(week.games[week.games.length - 1]?.gameday)}
-              {week.byes.length > 0 && ` · bye: ${week.byes.join(', ')}`} · {rows.length} players shown
+              {week.byes.length > 0 && ` · bye: ${week.byes.join(', ')}`} · {rows.length} players shown · scores are ranked within position
             </span>
           </div>
           <div className="overflow-x-auto rounded-md border border-line bg-panel">

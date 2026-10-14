@@ -9,7 +9,8 @@ Steps
      league's mix. Axes are listed in AXES, so a new split (e.g. vs blitz) is one more entry.
   4  Defense strength (defense side): FP allowed given its own coverage mix, and FP allowed to his
      alignments (WR) or to TEs, each as an index vs league, shrunk toward 1.00 by games played.
-  5  Matchup-adjusted FP/RR, projection, 0-100 Matchup Score, reasons and context flags.
+  5  Matchup-adjusted FP/RR and projection. The 0-100 Matchup Score blends coverage fit (45%), FP allowed
+     where he lines up (35%) and FP per dropback allowed (20%), each standardized, ranked within position.
 """
 
 from dataclasses import dataclass, field
@@ -26,13 +27,21 @@ MODEL = {
     "k_def_games": 4,
     # Step 5: matchup FP/RR = adj overall FP/RR * fit^w1 * coverage allowed^w2 * alignment allowed^w3
     "w_fit": 1.0,
-    "w_cov_allowed": 0.5,
+    "w_cov_allowed": 0.25,
     "w_align_allowed": 0.5,
-    # Matchup Score reference set: the week's scheduled pairs whose player has at least this many routes
+    # Matchup Score: a blend of three standardized parts, ranked within position (WRs vs WRs, TEs vs TEs).
+    #   coverage   - coverage fit: his splits vs this defense's coverage mix (most important)
+    #   alignment  - FP the defense allows where he lines up: outside / slot WRs, or TEs for TEs
+    #   ppd        - FP per dropback the defense allows to WR/TE given its coverage mix (WRs and TEs combined)
+    "score_weights": {"coverage": 0.45, "alignment": 0.35, "ppd": 0.20},
+    # Each part's standardized value is capped at +/- this many SDs, so one outlier (e.g. the league's
+    # worst pass defense) can't outweigh the others.
+    "score_z_cap": 2.0,
+    # Reference set: the week's scheduled pairs at his position whose player has at least this many routes
     "score_ref_min_routes": 50,
-    # Reasons: at most this many, and only contributors that move the matchup by at least this (log scale)
+    # Reasons: at most this many, and only contributors worth at least this much of the score (z units)
     "max_reasons": 3,
-    "reason_min_effect": 0.01,
+    "reason_min_effect": 0.05,
     # Context flags (no score impact): a defense rate this many points above/below league is flagged
     "flag_pts": {"BLITZ_PCT": 5.0, "PRESS_PCT_ANY": 5.0, "DISGUISE_PCT": 5.0},
     "rz_win_index": 1.20,           # red-zone win-rate index at or above this is flagged ...
@@ -308,46 +317,89 @@ def _rank_phrase(r: int, n: int, most: str = "most", least: str = "fewest") -> s
     return f"{ordinal(n - r + 1)} {least}"
 
 
-def reasons(p: dict, prof: dict, m: dict, team: str, d: dict, dprof: dict, lg: League, ranks: dict) -> list[dict]:
-    """Plain-English reasons from the biggest contributors (effect = log of that factor)."""
+def score_parts(m: dict) -> dict[str, float]:
+    """The parts of the Matchup Score, on a log scale (0 = league-neutral)."""
+    return {"coverage": log(m["fit"]), "alignment": log(m["align_index"]), "ppd": log(m["cov_index"])}
+
+
+@dataclass
+class ScoreScale:
+    """Mean and spread of each score part over a position's reference set, and the reference composites."""
+    mean: dict[str, float]
+    sd: dict[str, float]
+    ref: list[float]
+
+    def z(self, part: str, value: float) -> float:
+        cap = MODEL["score_z_cap"]
+        return max(-cap, min(cap, (value - self.mean[part]) / self.sd[part]))
+
+    def composite(self, parts: dict[str, float]) -> float:
+        w = MODEL["score_weights"]
+        return sum(w[k] * self.z(k, parts[k]) for k in w)
+
+    def per_log(self, part: str) -> float:
+        """Score units (z) per unit of log effect in this part."""
+        return MODEL["score_weights"][part] / self.sd[part]
+
+
+def score_scale(ref_parts: list[dict[str, float]]) -> ScoreScale:
+    keys = list(MODEL["score_weights"])
+    mean = {k: sum(p[k] for p in ref_parts) / len(ref_parts) for k in keys}
+    sd = {k: (sum((p[k] - mean[k]) ** 2 for p in ref_parts) / len(ref_parts)) ** 0.5 or 1.0 for k in keys}
+    sc = ScoreScale(mean=mean, sd=sd, ref=[])
+    sc.ref = sorted(sc.composite(p) for p in ref_parts)
+    return sc
+
+
+def reasons(p: dict, prof: dict, m: dict, team: str, d: dict, dprof: dict, lg: League, ranks: dict, scale: ScoreScale) -> list[dict]:
+    """Plain-English reasons from the biggest contributors to the score (effect in score z units)."""
     L = lg.defense
     lam = MODEL["zone_detail_weight"]
     nax = len(AXES)
+    cov = scale.per_log("coverage")
+    pos = scale.per_log("alignment")
+    ppd = scale.per_log("ppd")
     out = []
     sp = prof["splits"]
-    ov = prof["adj_overall"]
 
     for ax in AXES:
         a = m["axes"][ax["key"]]
-        eff = MODEL["w_fit"] * log(1 + (1 - lam) * (a["fit"] - 1) / nax)
-        # Talk about the side the defense leans toward relative to league.
+        eff = cov * log(1 + (1 - lam) * (a["fit"] - 1) / nax)
+        # Talk about the side the defense leans toward relative to league, and compare his index there
+        # with his index on the other side (indexes, since raw rates differ by coverage league-wide).
         lean = max(ax["sides"], key=lambda s: d[s[1]] - L[s[1]])
+        other = next(x for x in ax["sides"] if x is not lean)
         s, col, word = lean
-        fr = sp[s]["metrics"]["FP_RR"]
+        i_lean = sp[s]["metrics"]["FP_RR"]["index"]
+        i_other = sp[other[0]]["metrics"]["FP_RR"]["index"]
+        better = "better" if i_lean >= i_other else "worse"
         txt = (f"{team} plays {word} on {d[col]:.0f}% of dropbacks (league {L[col]:.0f}%); "
-               f"his {word} FP/RR is {fr['adj']:.2f} vs his overall {ov:.2f}.")
+               f"he's {better} vs {word} ({i_lean:.2f}x league FP/RR) than vs {other[2]} ({i_other:.2f}x).")
         out.append({"effect": eff, "text": txt, "kind": "coverage"})
 
-    # Zone detail: the cover the defense uses most above league.
-    zc = max(ZONE_COVERS, key=lambda z: d[z[1]] - L[z[1]])
+    # Zone detail: name the cover that moves his zone fit most in the same direction, i.e. the largest
+    # (defense share of zone - league share) x (his win-rate index - 1).
+    eff = cov * log(1 + lam * (m["zone_fit"] - 1))
+    zmix = dprof["zone_mix"]
+    contrib = {z[0]: (zmix[z[0]] - lg.zone_mix[z[0]]) * ((sp[z[0]]["metrics"]["WIN_RATE"]["index"] or 1.0) - 1) for z in ZONE_COVERS}
+    zc = max(ZONE_COVERS, key=lambda z: contrib[z[0]] if eff >= 0 else -contrib[z[0]])
     k_, col, label = zc
     wi = sp[k_]["metrics"]["WIN_RATE"]
-    eff = MODEL["w_fit"] * log(1 + lam * (m["zone_fit"] - 1))
+    more = "more" if d[col] >= L[col] else "less"
     out.append({"effect": eff, "kind": "zone",
-                "text": f"{team} plays {label} on {d[col]:.0f}% of dropbacks (league {L[col]:.0f}%); his {label} win rate is {wi['index']:.2f}x league."})
+                "text": f"{team} plays {label} {more} than most ({d[col]:.0f}% of dropbacks, league {L[col]:.0f}%); his {label} win rate is {wi['index']:.2f}x league."})
 
-    # Coverage-weighted FP allowed
+    # FP per dropback allowed to WR/TE given its coverage mix
     r = ranks["cov"][team]
-    eff = MODEL["w_cov_allowed"] * log(dprof["cov_index"])
     mz = dprof["cov_axes"]["man_zone"]
-    out.append({"effect": eff, "kind": "allowed",
-                "text": f"Allows {mz['allowed']:.2f} PPR points per dropback to WR/TE given how it covers (league {mz['league']:.2f}; {_rank_phrase(r, 32)})."})
+    out.append({"effect": ppd * log(m["cov_index"]), "kind": "allowed",
+                "text": f"Allows {mz['allowed']:.2f} PPR points per dropback to WRs and TEs combined given how it covers (league {mz['league']:.2f}; {_rank_phrase(r, 32)})."})
 
-    # Alignment / TE
+    # Points allowed where he lines up
     if p["POS"] == "TE":
         t = dprof["align"]["TE"]
         r = ranks["TE_FPG"][team]
-        out.append({"effect": MODEL["w_align_allowed"] * log(m["align_index"]), "kind": "alignment",
+        out.append({"effect": pos * log(m["align_index"]), "kind": "alignment",
                     "text": f"Allows {t['fpg']:.1f} FPG to TEs (league {t['league']:.1f}; {_rank_phrase(r, 32)})."})
     else:
         w = m["align_weights"]
@@ -356,9 +408,15 @@ def reasons(p: dict, prof: dict, m: dict, team: str, d: dict, dprof: dict, lg: L
         r = ranks["OUTER_FPG" if key == "WIDE" else "SLOT_FPG"][team]
         where = "outside WRs" if key == "WIDE" else "slot WRs"
         frm = "outside" if key == "WIDE" else "from the slot"
-        out.append({"effect": MODEL["w_align_allowed"] * log(m["align_index"]), "kind": "alignment",
+        out.append({"effect": pos * log(m["align_index"]), "kind": "alignment",
                     "text": f"Allows {t['fpg']:.1f} FPG to {where} ({_rank_phrase(r, 32)}); he runs {w[key] * 100:.0f}% of routes {frm}."})
 
+    cap = MODEL["score_z_cap"]
+    w = MODEL["score_weights"]
+    part_of = {"coverage": "coverage", "zone": "coverage", "allowed": "ppd", "alignment": "alignment"}
+    for x in out:
+        lim = cap * w[part_of[x["kind"]]]
+        x["effect"] = max(-lim, min(lim, x["effect"]))
     out = [x for x in out if abs(x["effect"]) >= MODEL["reason_min_effect"]]
     out.sort(key=lambda x: -abs(x["effect"]))
     return [{"text": x["text"], "kind": x["kind"], "edge": x["effect"] > 0, "effect": round(x["effect"], 4)} for x in out[: MODEL["max_reasons"]]]

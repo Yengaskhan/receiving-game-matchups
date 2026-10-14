@@ -152,3 +152,25 @@ def test_committed_week_scores():
     rows = [r for r in w["rows"] if r["routes"] >= 50]
     assert rows and all(r["score"] is not None and 0 <= r["score"] <= 100 for r in rows)
     assert 45 <= sum(r["score"] for r in rows) / len(rows) <= 55
+
+
+def test_score_blend_weights_and_cap():
+    ref = [{"coverage": c, "alignment": a, "ppd": d} for c, a, d in [(-0.02, -0.1, -0.1), (0.0, 0.0, 0.0), (0.02, 0.1, 0.1)]]
+    sc = M.score_scale(ref)
+    # Coverage weighs most: +1 SD of coverage beats +1 SD of either defense-side part.
+    one_sd = {k: sc.sd[k] for k in sc.sd}
+    cov_up = sc.composite({"coverage": one_sd["coverage"], "alignment": 0.0, "ppd": 0.0})
+    ali_up = sc.composite({"coverage": 0.0, "alignment": one_sd["alignment"], "ppd": 0.0})
+    ppd_up = sc.composite({"coverage": 0.0, "alignment": 0.0, "ppd": one_sd["ppd"]})
+    assert cov_up > ali_up > ppd_up > 0
+    # A huge points-per-dropback outlier is capped at 2 SDs.
+    assert sc.composite({"coverage": 0.0, "alignment": 0.0, "ppd": 50.0}) == pytest.approx(M.MODEL["score_weights"]["ppd"] * M.MODEL["score_z_cap"])
+
+
+@pytest.mark.skipif(not (DATA / "2026" / "index.json").exists(), reason="no outputs yet")
+def test_scores_are_centred_within_each_position():
+    idx = json.loads((DATA / "2026" / "index.json").read_text())
+    w = json.loads((DATA / "2026" / f"week-{idx['current_week']:02d}.json").read_text())
+    for pos in ("WR", "TE"):
+        rows = [r for r in w["rows"] if r["routes"] >= 50 and r["pos"] == pos]
+        assert 45 <= sum(r["score"] for r in rows) / len(rows) <= 55
