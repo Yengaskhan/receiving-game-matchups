@@ -17,8 +17,8 @@ const embedded = (() => {
 
 export type Tab = 'player' | 'slate' | 'defense';
 const TABS: [Tab, string][] = [
-  ['player', 'Player vs Defense'],
   ['slate', 'Slate Rankings'],
+  ['player', 'Player vs Defense'],
   ['defense', 'Defense Profiles'],
 ];
 
@@ -34,9 +34,13 @@ export default function ReceivingApp() {
   const [hash, setHash] = useState<HashState>(readHash);
   const [core, setCore] = useState<Core | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const tab = (TABS.some(([t]) => t === hash.tab) ? hash.tab : 'player') as Tab;
+  const tab = (TABS.some(([t]) => t === hash.tab) ? hash.tab : 'slate') as Tab;
 
-  const update = (patch: HashState) => setHash((h) => ({ ...h, ...patch }));
+  const update = (patch: HashState) => {
+    setHash((h) => ({ ...h, ...patch }));
+    // Switching views (e.g. View → from far down the slate) starts the new view at the top.
+    if (patch.tab) window.scrollTo({ top: 0 });
+  };
 
   useEffect(() => {
     const p = new URLSearchParams(Object.entries(hash).filter(([, v]) => v != null && v !== '') as [string, string][]);

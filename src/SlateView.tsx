@@ -108,6 +108,7 @@ export function SlateView({ index, hash, update }: { index: SeasonIndex; hash: H
                   <Th k="fit" className="text-right">Cov. fit</Th>
                   <Th className="min-w-[22rem]">Top reason</Th>
                   <Th k="routes_pg" className="text-right">Routes / G</Th>
+                  <Th className="text-center">Matchup detail</Th>
                 </tr>
               </thead>
               <tbody>
@@ -150,11 +151,16 @@ export function SlateView({ index, hash, update }: { index: SeasonIndex; hash: H
                       {n1(r.routes_pg)}
                       <span className="block text-[10.5px] text-ink-3">{n0(r.routes)} total</span>
                     </td>
+                    <td className="px-3 py-2 text-center">
+                      <button type="button" onClick={() => update({ tab: 'player', player: r.player, opp: r.opponent })} className="h-7 whitespace-nowrap rounded border border-accent/50 px-2.5 text-[12px] text-accent hover:bg-accent/10">
+                        View →
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="px-3 py-6 text-center text-ink-3">
+                    <td colSpan={8} className="px-3 py-6 text-center text-ink-3">
                       No players match these filters.
                     </td>
                   </tr>

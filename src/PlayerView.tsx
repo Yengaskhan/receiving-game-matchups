@@ -41,6 +41,9 @@ export function PlayerView({ core, season, week, hash, update }: { core: Core; s
 
   return (
     <div className="space-y-4">
+      <button type="button" onClick={() => update({ tab: 'slate' })} className="text-[12.5px] text-accent hover:underline">
+        ← Back to Slate Rankings
+      </button>
       <div className="flex flex-wrap items-end gap-3">
         <PlayerPicker players={core.players} value={player} onChange={(p) => update({ player: p.id, opp: undefined })} />
         <Select
