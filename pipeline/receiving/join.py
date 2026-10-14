@@ -3,8 +3,8 @@ Joins the three player files onto receiving-situation (the base).
 
 Tier 1: Name + Team. Tier 2, for rows tier 1 left over: Name + POS. A key only matches when it is
 unique on both sides, so two players with the same name are never guessed between. Everything left
-unmatched is reported. Columns another file shares with the base (e.g. OVERALL_RTE) keep the base's
-value; the other file's copy is kept with a prefix (SEP_, ALIGN_) so the two can be compared.
+unmatched is reported. Columns a later file shares with what is already joined (e.g. OVERALL_RTE) keep
+the earlier value; the other file's copy is kept with a prefix (SEP_, ALIGN_) so the two can be compared.
 """
 
 from dataclasses import dataclass, field
@@ -36,7 +36,7 @@ def join_player_files(base: pl.DataFrame, others: dict[str, pl.DataFrame]) -> tu
     reports = []
     for key, df in others.items():
         p = PREFIX[key]
-        rename = {c: (f"{p}{c}" if c in base.columns else c) for c in df.columns if c not in KEY_COLS and c not in DROP}
+        rename = {c: (f"{p}{c}" if c in out.columns else c) for c in df.columns if c not in KEY_COLS and c not in DROP}
         other = df.select(KEY_COLS + list(rename)).rename(rename).with_row_index("_orow")
         rep = JoinReport(file=key, base_rows=base.height, other_rows=df.height)
 

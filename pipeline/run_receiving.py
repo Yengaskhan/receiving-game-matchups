@@ -1,10 +1,13 @@
 """
 Receiving Game Matchup Report pipeline.
 
+    python pipeline/run_receiving.py              # build this week's report (nflverse's current week)
+    python pipeline/run_receiving.py --week 7     # build a specific week with the current exports
     python pipeline/run_receiving.py --inspect    # load and check the six exports, print what was parsed
 
-Reads the six FantasyPoints Data Suite exports in data/raw/, maps teams, joins the player files and
-(next stage) runs the matchup model and writes the site's JSON files.
+Reads the six FantasyPoints Data Suite exports in data/raw/, maps teams, joins the player files, runs
+the matchup model (pipeline/receiving/model.py) and writes the site's JSON files to data/<season>/.
+Any failed check stops the run before anything is written.
 """
 
 import argparse
@@ -15,7 +18,8 @@ import polars as pl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from receiving.config import COVERAGE_AGREE_TOL, FILES, PLAYER_FILES, POSITIONS, SEASON  # noqa: E402
+from receiving.build import build, write  # noqa: E402
+from receiving.config import COVERAGE_AGREE_TOL, FILES, OUTPUT_DIR, PLAYER_FILES, POSITIONS, SEASON  # noqa: E402
 from receiving.join import join_player_files  # noqa: E402
 from receiving.load import FormatError, load_all  # noqa: E402
 from receiving.teams import TeamMapError, load_team_map  # noqa: E402
@@ -115,15 +119,67 @@ def inspect() -> int:
     return 0
 
 
+def schedule_week(season: int, week: int | None) -> tuple[int, list[dict]]:
+    import nflreadpy as nfl
+
+    sched = nfl.load_schedules([season]).filter(pl.col("game_type") == "REG")
+    week = week or nfl.get_current_week()
+    if week not in set(sched["week"].to_list()):
+        raise FormatError(f"week {week} is not on the {season} regular-season schedule.")
+    wk = sched.filter(pl.col("week") == week).sort(["gameday", "gametime", "game_id"])
+    games = [{"game_id": g["game_id"], "away": g["away_team"], "home": g["home_team"], "gameday": g["gameday"], "gametime": g["gametime"]}
+             for g in wk.iter_rows(named=True)]
+    return week, games
+
+
+def run(week_arg: int | None, out: Path) -> int:
+    ex = load_all()
+    tm = load_team_map()
+    joined, reports = join_player_files(ex["situation"].df, {k: ex[k].df for k in PLAYER_FILES[1:]})
+    for r in reports:
+        if r.unmatched_base or r.unmatched_other:
+            print(f"{FILES[r.file]['file']}: unmatched rows (left out of that file's columns):")
+            for u in r.unmatched_base:
+                print(f"    in receiving-situation only: {u}")
+            for u in r.unmatched_other:
+                print(f"    in {FILES[r.file]['file']} only: {u}")
+    week, games = schedule_week(SEASON, week_arg)
+    for g in games:
+        for t in (g["away"], g["home"]):
+            if t not in tm.names:
+                raise TeamMapError(f"schedule team {t!r} is not in data/team_map.csv (nflverse_code).")
+    res = build(ex, joined, reports, tm, SEASON, week, games)
+    for c in res["meta"]["checks"]:
+        print(f"  ok  {c}")
+
+    rows = [r for r in res["week"]["rows"] if r["routes"] >= 50]
+    def line(r):
+        top = r["reasons"][0]["text"] if r["reasons"] else ""
+        return f"  {r['score']:>3}  {r['name']:<24} {r['pos']:<2} {r['team']:<3} {'vs' if r['home'] else '@ '} {r['opponent']:<3}  proj {r['proj']:5.1f}  fit {r['fit']:.2f}  cov {r['cov_index']:.2f}  align {r['align_index']:.2f}  | {top}"
+    print(f"\nWeek {week}: top 10 matchups (50+ routes)")
+    print("\n".join(line(r) for r in rows[:10]))
+    print(f"\nWeek {week}: bottom 10 matchups (50+ routes)")
+    print("\n".join(line(r) for r in rows[-10:]))
+    scores = sorted(r["score"] for r in rows)
+    q = lambda f: scores[int(f * (len(scores) - 1))]  # noqa: E731
+    print(f"\nScore distribution (n={len(scores)}): min {scores[0]}, p25 {q(.25)}, median {q(.5)}, p75 {q(.75)}, max {scores[-1]}; "
+          f"mean {sum(scores) / len(scores):.1f}")
+
+    written = write(res, out, SEASON, week)
+    print(f"\nWrote {len(written)} files to {out / str(SEASON)} (data as of {res['meta']['data_as_of']} UTC)")
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--inspect", action="store_true", help="load and check the exports, print what was parsed, write nothing")
+    ap.add_argument("--week", type=int, help="week to build (default: nflverse current week)")
+    ap.add_argument("--out", type=Path, default=OUTPUT_DIR, help="output folder (default: data/)")
     args = ap.parse_args()
     try:
         if args.inspect:
             return inspect()
-        print("Only --inspect is implemented so far.")
-        return 2
+        return run(args.week, args.out)
     except (FormatError, TeamMapError) as e:
         print(f"STOPPED: {e}", file=sys.stderr)
         return 1
