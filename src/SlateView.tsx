@@ -113,8 +113,15 @@ export function SlateView({ index, hash, update }: { index: SeasonIndex; hash: H
               </thead>
               <tbody>
                 {rows.map((r) => (
-                  <tr key={r.player} className="border-t border-line/60 hover:bg-panel-2/50">
-                    <td className="sticky left-0 z-10 bg-panel px-3 py-2">
+                  <tr
+                    key={r.player}
+                    onClick={() => update({ tab: 'player', player: r.player, opp: r.opponent })}
+                    onKeyDown={(e) => e.key === 'Enter' && e.target === e.currentTarget && update({ tab: 'player', player: r.player, opp: r.opponent })}
+                    tabIndex={0}
+                    title={`Open ${r.name} vs ${r.opponent}`}
+                    className="group cursor-pointer border-t border-line/60 hover:bg-panel-2/70 focus-visible:bg-panel-2/70"
+                  >
+                    <td className="sticky left-0 z-10 bg-panel px-3 py-2 group-hover:bg-panel-2">
                       <span className="flex items-center justify-between gap-3">
                         <button type="button" onClick={() => update({ tab: 'player', player: r.player, opp: r.opponent })} className="flex items-center gap-2 text-left hover:text-accent" title="Open in Player vs Defense">
                           <TeamLogo team={r.team} size={22} />
