@@ -23,7 +23,7 @@ const TABS: [Tab, string][] = [
 ];
 
 /** The view lives in the URL hash so a link goes straight to it. */
-export type HashState = Partial<Record<'tab' | 'player' | 'opp' | 'week' | 'team' | 'pos' | 'min' | 'filter', string>>;
+export type HashState = Partial<Record<'tab' | 'player' | 'opp' | 'week' | 'team' | 'pos' | 'min' | 'filter' | 'edges', string>>;
 
 function readHash(): HashState {
   return Object.fromEntries(new URLSearchParams(window.location.hash.slice(1))) as HashState;
@@ -130,7 +130,8 @@ export default function ReceivingApp() {
                 <ul className="list-disc space-y-1 pl-5">
                   <li>Each split (man, zone, single-high, two-high, Cover 2/3/4/6) is shrunk toward the player's own overall rate, scaled by how that coverage plays league-wide, so a 15-route split moves him only a little.</li>
                   <li>Splits are compared as an index vs the league rate in that same coverage (1.00 = league average); raw rates are never compared across coverages.</li>
-                  <li>Coverage fit = his expected FP per route given this defense's coverage mix, vs given the league's mix.</li>
+                  <li>Coverage fit = his expected yards per route given this defense's coverage mix, vs given the league's mix. Yards per route (not FP) because it counts the routes where the QB doesn't look his way and doesn't swing on touchdowns.</li>
+                  <li>Coverage edge (“Is it real?”): how confident we can be that a player's gap between two coverages isn't luck, given how many routes it's based on. 90%+ = real. The slate flags real edges or weaknesses in a coverage this week's opponent plays at a top-5 rate.</li>
                   <li>Defense side: FP allowed where he lines up (outside or slot WRs; TEs for TEs), and FP per dropback allowed to WRs and TEs combined given its coverage mix, each shrunk toward average by games played.</li>
                   <li>Matchup Score blends three parts, each standardized: coverage fit 45%, FP allowed where he lines up 35%, FP per dropback allowed 20%. No part counts for more than 2 SDs. It's ranked within position (WRs vs WRs, TEs vs TEs) among this week's matchups for players with {core.meta.model.score_ref_min_routes}+ routes. 50 = neutral. It measures the matchup, not the player.</li>
                   <li>Splits under {core.meta.model.low_sample_routes} routes are flagged “low n”. SEP MS, ADOR, +1/+2/+3 Rate and Neg Rate aren't defined by the source, so they're shown for reference only.</li>

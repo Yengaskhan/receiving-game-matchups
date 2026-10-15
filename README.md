@@ -132,10 +132,12 @@ adj_split_m   = (split_RTE × split_m + k × prior_split_m) / (split_RTE + k)
 
 ### Step 3: Coverage fit (player side)
 
+Coverage fit uses **yards per route** (`MODEL["fit_metric"]`). FP/RR swings on touchdowns, and target rate alone ignores what a target is worth; yards per route also counts the routes where the QB never looks his way.
+
 For each axis, the defense's shares are normalised to sum to 1. That spreads the ~4% of unusual plays pro rata.
 
 ```
-E_axis(mix)   = Σ_side share_side(mix) × adj_FP_RR_side
+E_axis(mix)   = Σ_side share_side(mix) × adj_YPRR_side
 fit_axis      = E_axis(defense mix) / E_axis(league mix)
 base_fit      = mean(fit_man_zone, fit_shell)
 zone_fit      = Σ_c defense_zone_share_c × win_index_c / Σ_c league_zone_share_c × win_index_c    (c = Cover 2/3/4/6)
@@ -174,7 +176,7 @@ every defensive index is shrunk:  1 + G / (G + 4) × (index − 1)
 matchup FP/RR    = adj_overall_FP_RR × coverage_fit^1.0 × align_allowed^0.5 × cov_allowed^0.25
 projection (PPR) = (RTE / G) × matchup FP/RR        ← "matchup-adjusted projection", not a full projection
 
-parts            = coverage:  ln(coverage_fit)
+parts            = coverage:  (coverage_fit − 1) × E_league   (yards per route gained vs a league-average coverage mix)
                    alignment: ln(align_allowed)      (outside/slot WRs by his route share; TEs: FP allowed to TEs)
                    ppd:       ln(cov_allowed)        (FP per dropback to WRs and TEs combined, given its coverage mix)
 z_part           = (part − mean) / SD over the reference set, capped at ±2
@@ -191,6 +193,26 @@ Matchup Score    = percentile of composite among this week's scheduled matchups 
 - **Opponents outside the schedule** (picked in the Player vs Defense tab) are scored against the same weekly reference set for his position.
 - **Players under 50 routes** are scored too, but shown with a dashed "small sample" badge.
 - **Score bands** match the RB report's Run Edge: 70+ great, 58+ good, 43–57 neutral, 31–42 tough, 30 or below very tough.
+
+### "Is it real?" Coverage-edge confidence
+
+For each player, each coverage is tested against its opposite:
+- man vs zone, and single-high vs two-high, on **yards per route**
+- Cover 2, 3, 4 and 6, each vs his other zone routes, on **win rate** (the only stat the exports give for them)
+
+Indexes are vs the league in each coverage, so league-wide differences between coverages don't count as his edge. The test uses raw (unshrunk) numbers.
+
+```
+per-route yards variance  Var = t × ypt² × (1 + cv²) − YPRR²      t = his TPRR, ypt = YPRR / t, cv = 1.4
+                          (a target's yards: incompletions are 0 and catches vary about as much as their mean)
+z          = (YPRR_a / L_a − YPRR_b / L_b) / sqrt(Var / n_a / L_a² + Var / n_b / L_b²)
+win rate   same, with Var = p(1 − p), p = his win rate over all zone routes
+confidence = 2Φ(|z|) − 1          (two-sided; 90% = a gap this big shows up by chance 10% of the time)
+```
+
+- **Labels:** "Real" at 90%+, "Leaning" at 75–90%, otherwise "Could be noise".
+- **Why cv = 1.4:** it comes from how a target's yards vary, not from fitting this data. With it, man-vs-zone and single-vs-two-high gaps across 100+ route players have a z spread of about 1.0. That means most gaps in five weeks of data are consistent with luck, which is why the test matters.
+- **Coverage edge flag:** a real (90%+) edge or weakness in a coverage this week's opponent plays at a top-5 rate (`edge_conf`, `edge_usage_rank`). It shows in Slate Rankings (with a "Coverage edges only" filter) and Player vs Defense. It has no direct effect on the score; the score already counts the same splits through coverage fit, with shrinkage.
 
 ### Reasons and context flags
 

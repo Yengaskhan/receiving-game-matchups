@@ -38,11 +38,28 @@ export interface Player {
   };
   splits: Record<CoverageKey, SplitBlock>;
   alignment: Record<'WIDE' | 'SLOT' | 'INLINE' | 'BACK', { label: string; share: number; routes: number; tgt: number; tprr: number; yprr: number }>;
+  edges: Record<string, SplitEdge>;
   reference: { sep_ms: number | null; ador: number | null; plus1: number | null; plus2: number | null; plus3: number | null; neg: number | null };
 }
 
 export interface Reason { text: string; kind: 'coverage' | 'zone' | 'allowed' | 'alignment'; edge: boolean; effect: number }
 export interface Flag { key: string; text: string }
+
+/** A real (confidence >= 90%) edge or weakness in a coverage this opponent plays at a top-5 rate. */
+export interface CoverageEdge { cov: CoverageKey; label: string; edge: boolean; conf: number; rank: number; pct: number; league: number; text: string }
+
+/** "Is it real?" for one coverage split: his index there vs in its opposite, and how confident. */
+export interface SplitEdge {
+  metric: 'YPRR' | 'WIN_RATE';
+  vs: string;
+  vs_key: string;
+  idx: number | null;
+  vs_idx: number | null;
+  routes: number;
+  vs_routes: number;
+  z: number | null;
+  conf: number;
+}
 
 export interface Pair {
   player: string;
@@ -53,6 +70,8 @@ export interface Pair {
   ratio: number;
   fit: number;
   base_fit: number;
+  /** Coverage fit in yards per route gained vs a league-average coverage mix (the score's coverage part). */
+  cov_yards?: number;
   zone_fit: number;
   axes: Record<string, { fit: number; def: number; league: number }>;
   cov_index: number;
@@ -62,6 +81,7 @@ export interface Pair {
   align_weights: Record<string, number>;
   reasons: Reason[];
   flags: Flag[];
+  coverage_edges: CoverageEdge[];
 }
 
 export interface PairFile { schema: number; season: number; week: number; defense: string; rows: Pair[] }
@@ -73,7 +93,7 @@ export interface Defense {
   db: number;
   opponent: string | null;
   home: boolean | null;
-  coverage: { key: string; label: string; pct: number; league: number }[];
+  coverage: { key: string; label: string; pct: number; league: number; rank: number | null }[];
   fp_db: { key: string; label: string; value: number; league: number; rank: number }[];
   alignment: { key: string; label: string; fpg: number; league: number; rank: number }[];
   context: { key: string; label: string; value: number; league: number }[];
@@ -108,6 +128,7 @@ export interface SlateRow {
   align_index: number;
   reasons: Reason[];
   flags: Flag[];
+  coverage_edges: CoverageEdge[];
 }
 
 export interface WeekFile {

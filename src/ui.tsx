@@ -125,3 +125,18 @@ export function Pill({ children, tone = 'neutral' }: { children: ReactNode; tone
   }[tone];
   return <span className={`inline-flex items-center rounded border px-1.5 py-px text-[10.5px] font-semibold uppercase tracking-wide ${cls}`}>{children}</span>;
 }
+
+/** Confidence that a coverage split is real, in words. */
+export function confLabel(conf: number): { label: string; tone: 'good' | 'warn' | 'neutral' } {
+  if (conf >= 0.9) return { label: 'Real', tone: 'good' };
+  if (conf >= 0.75) return { label: 'Leaning', tone: 'warn' };
+  return { label: 'Could be noise', tone: 'neutral' };
+}
+
+export function EdgeChip({ e }: { e: { label: string; edge: boolean; conf: number; rank: number; text: string } }) {
+  return (
+    <span title={e.text} className={`inline-flex items-center gap-1 whitespace-nowrap rounded border px-1.5 py-px text-[11px] font-semibold ${e.edge ? 'border-edge-good/50 text-edge-good' : 'border-edge-bad/50 text-edge-bad'}`}>
+      {e.edge ? '▲' : '▼'} {e.label} · #{e.rank} · {Math.round(e.conf * 100)}%
+    </span>
+  );
+}

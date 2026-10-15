@@ -114,6 +114,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
     profs = {p["id"]: M.player_profile(p, lg) for p in players}
     dprofs = {t: M.defense_profile(defenses[t], allowed[t], lg) for t in defenses}
     ranks = M.defense_ranks(defenses, dprofs, allowed)
+    cov_ranks = M.usage_ranks(defenses)
 
     # Every player vs every defense (not his own team).
     pairs: dict[str, dict[str, dict]] = {t: {} for t in defenses}
@@ -156,11 +157,12 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         return {
             "player": pid, "defense": t, "score": m["score"], "composite": m["composite"], "parts": m["parts"],
             "proj": m["proj"], "fp_rr": m["fp_rr"], "ratio": m["ratio"],
-            "fit": m["fit"], "base_fit": m["base_fit"], "zone_fit": m["zone_fit"],
+            "fit": m["fit"], "base_fit": m["base_fit"], "zone_fit": m["zone_fit"], "cov_yards": m["cov_yards"],
             "axes": {k: {"fit": a["fit"], "def": a["def"], "league": a["league"]} for k, a in m["axes"].items()},
             "cov_index": m["cov_index"], "align_index": m["align_index"], "align_weights": m["align_weights"],
             "reasons": M.reasons(p, profs[pid], m, t, defenses[t], dprofs[t], lg, ranks, scales[p["POS"]]),
             "flags": M.flags(p, profs[pid], t, defenses[t], lg),
+            "coverage_edges": M.coverage_edges(profs[pid], defenses[t], cov_ranks, t, lg),
         }
 
     pair_files = {t: {"schema": SCHEMA_VERSION, "season": season, "week": week, "defense": t,
@@ -181,6 +183,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
                         "sep_routes": p["SEP_OVERALL_RTE"], "tgt": p["OVERALL_TGT"], "rec": p["OVERALL_REC"], "yds": p["OVERALL_YDS"],
                         "td": p["OVERALL_TD"], "ay": p["OVERALL_AY"], "tgt_pct": p["OVERALL_TGT_PCT"]},
             "splits": pr["splits"],
+            "edges": pr["edges"],
             "alignment": {a: {"label": lab, "share": pr["align_shares"][a], "routes": p[f"{a}_RTE"], "tgt": p[f"{a}_TGT"],
                               "tprr": p[f"{a}_TPRR"], "yprr": p[f"{a}_YPRR"]} for a, lab in M.ALIGNMENTS},
             # Undefined by the source: shown for reference, never used in a calculation.
@@ -203,7 +206,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         defenses_out.append({
             "team": t, "name": tm.names[t], "g": d["G"], "db": d["DB"],
             "opponent": o[0] if o else None, "home": o[1] if o else None,
-            "coverage": [{"key": k, "label": lab, "pct": d[c], "league": L[c]} for k, lab, c in shares],
+            "coverage": [{"key": k, "label": lab, "pct": d[c], "league": L[c], "rank": cov_ranks[c][t] if c in cov_ranks else None} for k, lab, c in shares],
             "fp_db": [{"key": k, "label": lab, "value": d[c], "league": L[c], "rank": ranks[c][t]}
                       for k, lab, c in [("MAN", "Man", "FP_DB_MAN"), ("ZONE", "Zone", "FP_DB_ZONE"), ("SINGLE_HIGH", "Single-High", "FP_DB_1HI"), ("TWO_HIGH", "Two-High", "FP_DB_2HI")]],
             "alignment": [{"key": k, "label": lab, "fpg": src[c], "league": L[c], "rank": ranks[c][t]}
@@ -227,7 +230,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
                      "game_id": o[2], "routes": p["OVERALL_RTE"], "routes_pg": p["OVERALL_RTE"] / p["G"] if p["G"] else 0,
                      "score": po["score"], "proj": po["proj"], "fp_rr": po["fp_rr"], "adj_fp_rr": profs[p["id"]]["adj_overall"],
                      "fit": po["fit"], "cov_index": po["cov_index"], "align_index": po["align_index"], "parts": po["parts"],
-                     "reasons": po["reasons"], "flags": po["flags"]})
+                     "reasons": po["reasons"], "flags": po["flags"], "coverage_edges": po["coverage_edges"]})
     rows.sort(key=lambda r: (-r["score"], -r["proj"]))
 
     # Validation of the model output (stops the run)

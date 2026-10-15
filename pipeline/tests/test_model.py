@@ -70,8 +70,8 @@ def _league():
 def _player(pos="WR"):
     p = {"POS": pos, "G": 5, "OVERALL_RTE": 150, "OVERALL_FP_RR": 0.45, "OVERALL_YPRR": 2.0, "OVERALL_TPRR": 0.25,
          "OVERALL_WIN_RATE": 12.0, "OVERALL_SEP_SCORE": 0.05, "SEP_OVERALL_RTE": 148}
-    for s, n, fp in [("MAN", 30, 0.7), ("ZONE", 110, 0.4), ("SINGLE_HIGH", 75, 0.5), ("TWO_HIGH", 75, 0.4)]:
-        p.update({f"{s}_RTE": n, f"{s}_FP_RR": fp, f"{s}_YPRR": 2.0, f"{s}_TPRR": 0.25})
+    for s, n, fp, y in [("MAN", 30, 0.7, 3.0), ("ZONE", 110, 0.4, 1.7), ("SINGLE_HIGH", 75, 0.5, 2.2), ("TWO_HIGH", 75, 0.4, 1.8)]:
+        p.update({f"{s}_RTE": n, f"{s}_FP_RR": fp, f"{s}_YPRR": y, f"{s}_TPRR": 0.25})
     p.update({"SEP_MAN_RTE": 30, "SEP_ZONE_RTE": 110, "RZ_RTE": 10})
     for s in ["MAN", "ZONE", "RZ", "C2", "C3", "C4", "C6"]:
         p.update({f"{s}_WIN_RATE": 15.0 if s == "C3" else 10.0, f"{s}_SEP_SCORE": 0.04})
@@ -174,3 +174,40 @@ def test_scores_are_centred_within_each_position():
     for pos in ("WR", "TE"):
         rows = [r for r in w["rows"] if r["routes"] >= 50 and r["pos"] == pos]
         assert 45 <= sum(r["score"] for r in rows) / len(rows) <= 55
+
+
+def test_confidence():
+    assert M.confidence(0) == pytest.approx(0)
+    assert M.confidence(1.645) == pytest.approx(0.90, abs=0.001)
+    assert M.confidence(-1.96) == pytest.approx(0.95, abs=0.001)
+
+
+def test_yprr_route_variance():
+    # 20% targeted, 2.0 YPRR -> 10 yards per target, SD 14: Var = 0.2 * 100 * (1 + 1.96) - 4
+    assert M.yprr_route_var(0.2, 2.0) == pytest.approx(0.2 * 100 * (1 + M.MODEL["ypt_cv"] ** 2) - 4)
+    assert M.yprr_route_var(0, 1.0) is None
+
+
+def test_split_edge_needs_volume():
+    lg = _league()
+    big = _player()
+    small = _player()
+    for k in ("MAN_RTE", "ZONE_RTE"):
+        small[k] = big[k] / 10
+    e_big = M.split_edges(big, lg)["MAN"]
+    e_small = M.split_edges(small, lg)["MAN"]
+    # Same rates, 10x the routes -> much more confident; MAN and ZONE are mirror images.
+    assert e_big["conf"] > e_small["conf"]
+    assert e_big["z"] > 0 and M.split_edges(big, lg)["ZONE"]["z"] == pytest.approx(-e_big["z"])
+
+
+def test_coverage_edge_only_when_real_and_heavily_used():
+    lg = _league()
+    p = _player()
+    prof = M.player_profile(p, lg)
+    prof["edges"]["MAN"].update(z=2.5, conf=M.confidence(2.5))
+    d = dict(lg.defense)
+    ranks = {col: {"X": 1} for _, col, _ in M.USAGE_COLS}
+    assert [e["cov"] for e in M.coverage_edges(prof, d, ranks, "X", lg) if e["cov"] == "MAN"] == ["MAN"]
+    ranks["MAN_PCT"]["X"] = 6                       # not a top-5 man defense -> no flag
+    assert not [e for e in M.coverage_edges(prof, d, ranks, "X", lg) if e["cov"] == "MAN"]

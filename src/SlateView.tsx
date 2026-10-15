@@ -4,7 +4,7 @@ import { formatDate, n0, n1, n2, n3 } from './format';
 import type { HashState } from './ReceivingApp';
 import { TeamLogo, teamName } from './TeamLogo';
 import type { SeasonIndex, SlateRow, WeekFile } from './types';
-import { BANDS, ScoreBadge, Select, SortTh, type SortState } from './ui';
+import { BANDS, EdgeChip, ScoreBadge, Select, SortTh, type SortState } from './ui';
 
 type SortKey = 'name' | 'opponent' | 'score' | 'proj' | 'fit' | 'routes_pg';
 
@@ -27,6 +27,7 @@ export function SlateView({ index, hash, update }: { index: SeasonIndex; hash: H
   const team = hash.team ?? 'all';
   const minRoutes = hash.min != null ? Number(hash.min) : 50;
   const query = hash.filter ?? '';
+  const edgesOnly = hash.edges === '1';
   const [sort, setSort] = useState<SortState<SortKey>>({ key: 'score', desc: true });
 
   const teams = useMemo(() => [...new Set(week?.rows.map((r) => r.team) ?? [])].sort(), [week]);
@@ -34,7 +35,7 @@ export function SlateView({ index, hash, update }: { index: SeasonIndex; hash: H
     if (!week) return [];
     const q = query.trim().toLowerCase();
     const list = week.rows.filter(
-      (r) => (pos === 'all' || r.pos === pos) && (team === 'all' || r.team === team || r.opponent === team) && r.routes >= minRoutes && (!q || r.name.toLowerCase().includes(q)),
+      (r) => (pos === 'all' || r.pos === pos) && (team === 'all' || r.team === team || r.opponent === team) && r.routes >= minRoutes && (!q || r.name.toLowerCase().includes(q)) && (!edgesOnly || r.coverage_edges.length > 0),
     );
     const val = (r: SlateRow): number | string => (sort.key === 'name' ? r.name : sort.key === 'opponent' ? r.opponent : r[sort.key]);
     return list.sort((a, b) => {
@@ -43,14 +44,14 @@ export function SlateView({ index, hash, update }: { index: SeasonIndex; hash: H
       const c = typeof va === 'string' ? va.localeCompare(vb as string) : va - (vb as number);
       return sort.desc ? -c : c;
     });
-  }, [week, pos, team, minRoutes, query, sort]);
+  }, [week, pos, team, minRoutes, query, edgesOnly, sort]);
 
   const download = () => {
     if (!week) return;
-    const head = ['Player', 'Pos', 'Team', 'Opponent', 'Home', 'Matchup Score', 'Matchup-adjusted projection (PPR)', 'Matchup FP/RR', 'Adj FP/RR', 'Coverage fit', 'Coverage allowed index', 'Alignment allowed index', 'Routes', 'Routes per game', 'Top reason'];
+    const head = ['Player', 'Pos', 'Team', 'Opponent', 'Home', 'Matchup Score', 'Matchup-adjusted projection (PPR)', 'Matchup FP/RR', 'Adj FP/RR', 'Coverage fit', 'Coverage allowed index', 'Alignment allowed index', 'Routes', 'Routes per game', 'Coverage edges', 'Top reason'];
     const esc = (v: string | number) => (typeof v === 'number' || /^-?\d+(\.\d+)?$/.test(v) ? String(v) : `"${v.replace(/"/g, '""')}"`);
     const lines = rows.map((r) =>
-      [r.name, r.pos, r.team, r.opponent, r.home ? 'Y' : 'N', r.score, r.proj.toFixed(2), r.fp_rr.toFixed(3), r.adj_fp_rr.toFixed(3), r.fit.toFixed(3), r.cov_index.toFixed(3), r.align_index.toFixed(3), r.routes, r.routes_pg.toFixed(1), r.reasons[0]?.text ?? '']
+      [r.name, r.pos, r.team, r.opponent, r.home ? 'Y' : 'N', r.score, r.proj.toFixed(2), r.fp_rr.toFixed(3), r.adj_fp_rr.toFixed(3), r.fit.toFixed(3), r.cov_index.toFixed(3), r.align_index.toFixed(3), r.routes, r.routes_pg.toFixed(1), r.coverage_edges.map((e) => `${e.edge ? 'EDGE' : 'CONCERN'} ${e.text}`).join(' | '), r.reasons[0]?.text ?? '']
         .map(esc)
         .join(','),
     );
@@ -78,6 +79,10 @@ export function SlateView({ index, hash, update }: { index: SeasonIndex; hash: H
           Find player
           <input value={query} onChange={(e) => update({ filter: e.target.value })} placeholder="Name" className="h-8 w-36 rounded border border-line-2 bg-panel-2 px-2 text-[13px] normal-case tracking-normal text-ink placeholder:text-ink-3" />
         </label>
+        <label className="flex h-8 cursor-pointer items-center gap-2 rounded border border-line-2 bg-panel-2 px-2.5 text-[12.5px] text-ink-2 hover:border-ink-3" title="Players with a real (90%+ confident) edge or weakness in a coverage this week's opponent plays at a top-5 rate">
+          <input type="checkbox" checked={edgesOnly} onChange={(e) => update({ edges: e.target.checked ? '1' : undefined })} className="accent-[var(--color-accent)]" />
+          Coverage edges only
+        </label>
         <button type="button" onClick={download} className="ml-auto h-8 rounded border border-line-2 bg-panel-2 px-3 text-[12.5px] text-ink-2 hover:border-ink-3 hover:text-ink">
           Download CSV ↓
         </button>
@@ -94,7 +99,7 @@ export function SlateView({ index, hash, update }: { index: SeasonIndex; hash: H
             ))}
             <span className="ml-2">
               {week.games.length} games · {formatDate(week.games[0]?.gameday)} – {formatDate(week.games[week.games.length - 1]?.gameday)}
-              {week.byes.length > 0 && ` · bye: ${week.byes.join(', ')}`} · {rows.length} players shown · scores are ranked within position
+              {week.byes.length > 0 && ` · bye: ${week.byes.join(', ')}`} · {rows.length} players shown · scores are ranked within position · coverage edge: ▲ real edge / ▼ real weakness in a coverage the opponent plays at a top-5 rate (#rank · confidence)
             </span>
           </div>
           <div className="overflow-x-auto rounded-md border border-line bg-panel">
@@ -104,6 +109,7 @@ export function SlateView({ index, hash, update }: { index: SeasonIndex; hash: H
                   <Th k="name" className="sticky left-0 z-10 bg-panel-2">Player</Th>
                   <Th k="opponent" className="hidden sm:table-cell">Opponent</Th>
                   <Th k="score" className="text-center">Matchup</Th>
+                  <Th className="min-w-[11rem]">Coverage edge</Th>
                   <Th k="proj" className="text-right">Proj. (PPR)</Th>
                   <Th k="fit" className="text-right">Cov. fit</Th>
                   <Th className="min-w-[22rem]">Top reason</Th>
@@ -149,6 +155,17 @@ export function SlateView({ index, hash, update }: { index: SeasonIndex; hash: H
                     <td className="px-3 py-2 text-center">
                       <ScoreBadge score={r.score} small={r.routes < 50} />
                     </td>
+                    <td className="px-3 py-2">
+                      {r.coverage_edges.length ? (
+                        <span className="flex flex-col items-start gap-1">
+                          {r.coverage_edges.map((e) => (
+                            <EdgeChip key={e.cov} e={e} />
+                          ))}
+                        </span>
+                      ) : (
+                        <span className="text-ink-3">—</span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 text-right" title={`${n1(r.routes_pg)} routes × ${n3(r.fp_rr)} FP/RR`}>
                       {n1(r.proj)}
                     </td>
@@ -167,7 +184,7 @@ export function SlateView({ index, hash, update }: { index: SeasonIndex; hash: H
                 ))}
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-3 py-6 text-center text-ink-3">
+                    <td colSpan={9} className="px-3 py-6 text-center text-ink-3">
                       No players match these filters.
                     </td>
                   </tr>

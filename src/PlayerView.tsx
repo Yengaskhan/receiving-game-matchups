@@ -4,14 +4,14 @@ import { idx, n0, n1, n2, n3, pct, rankPhrase, share, signed } from './format';
 import type { HashState } from './ReceivingApp';
 import { TeamLogo, teamName } from './TeamLogo';
 import type { CoverageKey, Defense, Pair, Player, WeekFile } from './types';
-import { Card, DivBar, LowSample, Panel, Pill, ScoreBadge, Select } from './ui';
+import { Card, confLabel, DivBar, EdgeChip, LowSample, Panel, Pill, ScoreBadge, Select } from './ui';
 
-/** The coverages in the main chart. The first four compare FP/RR; Cover 2/3/4/6 only have win rate. */
-const CHART: { key: CoverageKey; def: string; metric: 'FP_RR' | 'WIN_RATE' }[] = [
-  { key: 'MAN', def: 'MAN', metric: 'FP_RR' },
-  { key: 'ZONE', def: 'ZONE', metric: 'FP_RR' },
-  { key: 'SINGLE_HIGH', def: 'SINGLE_HIGH', metric: 'FP_RR' },
-  { key: 'TWO_HIGH', def: 'TWO_HIGH', metric: 'FP_RR' },
+/** The coverages in the main chart. The first four compare yards per route; Cover 2/3/4/6 only have win rate. */
+const CHART: { key: CoverageKey; def: string; metric: 'YPRR' | 'WIN_RATE' }[] = [
+  { key: 'MAN', def: 'MAN', metric: 'YPRR' },
+  { key: 'ZONE', def: 'ZONE', metric: 'YPRR' },
+  { key: 'SINGLE_HIGH', def: 'SINGLE_HIGH', metric: 'YPRR' },
+  { key: 'TWO_HIGH', def: 'TWO_HIGH', metric: 'YPRR' },
   { key: 'C2', def: 'C2', metric: 'WIN_RATE' },
   { key: 'C3', def: 'C3', metric: 'WIN_RATE' },
   { key: 'C4', def: 'C4', metric: 'WIN_RATE' },
@@ -92,6 +92,7 @@ export function PlayerView({ core, season, week, hash, update }: { core: Core; s
         </div>
       </div>
 
+      <RealEdges p={player} d={d} />
       <DetailTable p={player} low={core.meta.model.low_sample_routes} />
       <DefenseContext d={d} />
     </div>
@@ -185,7 +186,7 @@ function HeaderCards({ p, pair }: { p: Player; pair: Pair }) {
       <Card label="Matchup-adjusted projection" sub={`${n1(p.routes_pg)} routes × ${n3(pair.fp_rr)} FP/RR (his adj. ${n3(p.overall.adj_fp_rr)})`}>
         <span className="num text-[22px] font-semibold">{n1(pair.proj)}</span> <span className="text-ink-3">PPR</span>
       </Card>
-      <Card label="Coverage fit" sub="His expected FP/RR vs this coverage mix ÷ vs the league's mix. Above 1.00 suits him.">
+      <Card label="Coverage fit" sub={`His expected yards per route vs this coverage mix ÷ vs the league's mix (${signed(pair.cov_yards ?? 0, 2)} yds/route). Above 1.00 suits him.`}>
         <span className={`num text-[22px] font-semibold ${pair.fit > 1.01 ? 'text-edge-good' : pair.fit < 0.99 ? 'text-edge-bad' : ''}`}>{n2(pair.fit)}</span>
       </Card>
       <Card label={edge ? 'Top edge' : 'Top concern'}>
@@ -198,6 +199,17 @@ function HeaderCards({ p, pair }: { p: Player; pair: Pair }) {
 function Reasons({ p, pair }: { p: Player; pair: Pair }) {
   return (
     <Panel title="Why" note={`coverage fit ${n2(pair.fit)} · ${p.pos === 'TE' ? 'TE' : 'alignment'} allowed ${n2(pair.align_index)} · FP/dropback allowed ${n2(pair.cov_index)}`}>
+      {pair.coverage_edges.length > 0 && (
+        <div className="mb-3 space-y-1.5 rounded border border-line bg-panel-2/50 p-2">
+          <p className="text-[10.5px] font-medium uppercase tracking-wider text-ink-3">Coverage edge (90%+ confident, coverage this defense plays at a top-5 rate)</p>
+          {pair.coverage_edges.map((e) => (
+            <div key={e.cov} className="flex flex-wrap items-start gap-2 text-[12px]">
+              <EdgeChip e={e} />
+              <span className="text-ink-2">{e.text}</span>
+            </div>
+          ))}
+        </div>
+      )}
       <ul className="space-y-1.5 text-[12.5px]">
         {pair.reasons.map((r) => (
           <li key={r.text} className="flex gap-2">
@@ -228,7 +240,7 @@ function CoverageChart({ p, d, L }: { p: Player; d: Defense; L: Record<string, n
   const cov = new Map(d.coverage.map((c) => [c.key, c]));
   // Edge / concern compare each coverage with his own level, the same yardstick as coverage fit:
   // his expected rate against the league's mix of the coverages on that row's axis.
-  const fp = (k: CoverageKey) => p.splits[k].metrics.FP_RR!.adj;
+  const fp = (k: CoverageKey) => p.splits[k].metrics.YPRR!.adj;
   const wr = (k: CoverageKey) => p.splits[k].metrics.WIN_RATE!.index ?? 1;
   const mix = (a: number, b: number) => [a / (a + b), b / (a + b)];
   const [lm, lz] = mix(L.MAN_PCT, L.ZONE_PCT);
@@ -262,13 +274,13 @@ function CoverageChart({ p, d, L }: { p: Player; d: Defense; L: Record<string, n
           const o = own[c.key];
           const rel = o.mine / o.base;
           const tag = above && rel > 1.02 ? 'edge' : above && rel < 0.98 ? 'concern' : null;
-          const routes = c.metric === 'FP_RR' ? s.routes : (s.sep_routes ?? s.routes);
+          const routes = c.metric === 'YPRR' ? s.routes : (s.sep_routes ?? s.routes);
           return (
             <div key={c.key} className={`contents ${i === 4 ? '[&>*]:mt-2' : ''}`}>
               <span className="font-medium">
                 {s.label}
                 {routes < 20 && <LowSample routes={routes} />}
-                <span className="block text-[10.5px] font-normal text-ink-3">{c.metric === 'FP_RR' ? 'FP/RR' : 'win rate'} · {n0(routes)} rte</span>
+                <span className="block text-[10.5px] font-normal text-ink-3">{c.metric === 'YPRR' ? 'yds/route' : 'win rate'} · {n0(routes)} rte</span>
               </span>
               <span className="flex items-center gap-2">
                 <DivBar value={diff} max={20} label={`${d.team} ${s.label}: ${pct(u.pct)} of dropbacks vs league ${pct(u.league)}`} />
@@ -277,7 +289,7 @@ function CoverageChart({ p, d, L }: { p: Player; d: Defense; L: Record<string, n
                 </span>
               </span>
               <span className="flex items-center gap-2">
-                <DivBar value={ix - 1} max={0.6} tone={tag === 'edge' ? 'good' : tag === 'concern' ? 'bad' : 'neutral'} label={`${p.name} ${s.label} index ${idx(ix)} (adj ${c.metric === 'FP_RR' ? n2(m.adj) : pct(m.adj, 1)} vs league ${c.metric === 'FP_RR' ? n2(m.league) : pct(m.league, 1)})`} />
+                <DivBar value={ix - 1} max={0.6} tone={tag === 'edge' ? 'good' : tag === 'concern' ? 'bad' : 'neutral'} label={`${p.name} ${s.label} index ${idx(ix)} (adj ${c.metric === 'YPRR' ? n2(m.adj) : pct(m.adj, 1)} vs league ${c.metric === 'YPRR' ? n2(m.league) : pct(m.league, 1)})`} />
                 <span className="num w-[2.5rem] shrink-0 text-right text-[11.5px]">{idx(ix)}</span>
               </span>
               <span className="col-span-3 -mt-1 sm:col-span-1 sm:mt-0">{tag && <Pill tone={tag === 'edge' ? 'good' : 'bad'}>{tag}</Pill>}</span>
@@ -286,7 +298,7 @@ function CoverageChart({ p, d, L }: { p: Player; d: Defense; L: Record<string, n
         })}
       </div>
       <p className="mt-3 text-[11px] text-ink-3">
-        Edge: the defense plays it more than league and it's one of his better coverages (above his own average across that axis). Concern: plays it more, and it's one of his weaker ones. Bars show his index vs league, after shrinkage; Cover 2/3/4/6 have no FP split, so they use win rate. Cover 0/1/2 Man are covered by the Man row.
+        Edge: the defense plays it more than league and it's one of his better coverages (above his own average across that axis). Concern: plays it more, and it's one of his weaker ones. Bars show his index vs league, after shrinkage; Cover 2/3/4/6 have no yardage split, so they use win rate. Cover 0/1/2 Man are covered by the Man row.
       </p>
     </Panel>
   );
@@ -447,6 +459,84 @@ export function DefenseContext({ d }: { d: Defense }) {
           );
         })}
       </div>
+    </Panel>
+  );
+}
+
+const EDGE_ROWS: { key: string; usage: string }[] = [
+  { key: 'MAN', usage: 'MAN' },
+  { key: 'ZONE', usage: 'ZONE' },
+  { key: 'SINGLE_HIGH', usage: 'SINGLE_HIGH' },
+  { key: 'TWO_HIGH', usage: 'TWO_HIGH' },
+  { key: 'C2', usage: 'C2' },
+  { key: 'C3', usage: 'C3' },
+  { key: 'C4', usage: 'C4' },
+  { key: 'C6', usage: 'C6' },
+];
+
+/** "Is it real?": each coverage split vs its opposite, with how confident we are it isn't luck. */
+function RealEdges({ p, d }: { p: Player; d: Defense }) {
+  const usage = new Map(d.coverage.map((c) => [c.key, c]));
+  return (
+    <Panel title="Is it real? His coverage splits" note="Raw numbers this season · confidence that the gap isn't luck">
+      <div className="overflow-x-auto">
+        <table className="num w-full min-w-[720px] text-[12px]">
+          <thead className="text-[10.5px] uppercase tracking-wider text-ink-3">
+            <tr className="text-left">
+              <th className="py-1 font-medium">Coverage</th>
+              <th className="py-1 text-right font-medium">His index</th>
+              <th className="py-1 pl-3 font-medium">Compared with</th>
+              <th className="py-1 text-right font-medium">Routes</th>
+              <th className="py-1 pl-3 font-medium">Confidence</th>
+              <th className="py-1 pl-3 font-medium">{d.team} plays it</th>
+            </tr>
+          </thead>
+          <tbody>
+            {EDGE_ROWS.map(({ key, usage: u }) => {
+              const e = p.edges[key];
+              if (!e) return null;
+              const c = usage.get(u);
+              const cl = confLabel(e.conf);
+              const better = (e.z ?? 0) > 0;
+              const metric = e.metric === 'YPRR' ? 'yds/route' : 'win rate';
+              return (
+                <tr key={key} className="border-t border-line/60">
+                  <td className="py-1.5 font-medium">
+                    {p.splits[key as CoverageKey].label}
+                    <span className="block text-[10.5px] font-normal text-ink-3">{metric}</span>
+                  </td>
+                  <td className={`py-1.5 text-right font-semibold ${e.conf >= 0.9 ? (better ? 'text-edge-good' : 'text-edge-bad') : ''}`}>{idx(e.idx)}</td>
+                  <td className="py-1.5 pl-3 text-ink-2">
+                    {idx(e.vs_idx)} <span className="text-ink-3">vs {e.vs.toLowerCase()}</span>
+                  </td>
+                  <td className="py-1.5 text-right text-ink-3">
+                    {n0(e.routes)} / {n0(e.vs_routes)}
+                  </td>
+                  <td className="py-1.5 pl-3">
+                    <span className="inline-flex items-center gap-2">
+                      <Pill tone={cl.tone}>{cl.label}</Pill>
+                      <span className="text-ink-2">{e.z == null ? '—' : `${Math.round(e.conf * 100)}% sure he's ${better ? 'better' : 'worse'} here`}</span>
+                    </span>
+                  </td>
+                  <td className="py-1.5 pl-3 text-ink-2">
+                    {c ? (
+                      <>
+                        {pct(c.pct)} <span className={c.rank != null && c.rank <= 5 ? 'font-semibold text-accent' : 'text-ink-3'}>({c.rank != null ? `#${c.rank}` : '—'})</span>
+                      </>
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p className="mt-3 text-[11px] text-ink-3">
+        Index = his rate in that coverage ÷ the league rate in it (1.00 = league average). Man vs zone and single- vs two-high compare yards per route; Cover 2/3/4/6 compare win rate with his other zone coverages
+        (the exports have no yards for them). Confidence: how sure we can be the gap isn't luck, given how many routes it's based on. Real = 90%+, leaning = 75–90%. #rank = how often {d.team} plays it among 32 defenses.
+      </p>
     </Panel>
   );
 }
