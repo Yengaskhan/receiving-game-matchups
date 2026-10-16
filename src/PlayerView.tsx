@@ -1,22 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { CoverageMatchup } from './CoverageMatchup';
 import { loadPairs, type Core } from './data';
 import { idx, n0, n1, n2, n3, pct, rankPhrase, share, signed } from './format';
 import type { HashState } from './ReceivingApp';
 import { TeamLogo, teamName } from './TeamLogo';
 import type { CoverageKey, Defense, Pair, Player, WeekFile } from './types';
-import { Card, confLabel, DivBar, EdgeChip, LowSample, Panel, Pill, ScoreBadge, Select } from './ui';
+import { Card, confLabel, EdgeChip, LowSample, Panel, Pill, ScoreBadge, Select } from './ui';
 
-/** The coverages in the main chart. The first four compare yards per route; Cover 2/3/4/6 only have win rate. */
-const CHART: { key: CoverageKey; def: string; metric: 'YPRR' | 'WIN_RATE' }[] = [
-  { key: 'MAN', def: 'MAN', metric: 'YPRR' },
-  { key: 'ZONE', def: 'ZONE', metric: 'YPRR' },
-  { key: 'SINGLE_HIGH', def: 'SINGLE_HIGH', metric: 'YPRR' },
-  { key: 'TWO_HIGH', def: 'TWO_HIGH', metric: 'YPRR' },
-  { key: 'C2', def: 'C2', metric: 'WIN_RATE' },
-  { key: 'C3', def: 'C3', metric: 'WIN_RATE' },
-  { key: 'C4', def: 'C4', metric: 'WIN_RATE' },
-  { key: 'C6', def: 'C6', metric: 'WIN_RATE' },
-];
 
 export function PlayerView({ core, season, basis, week, hash, update }: { core: Core; season: number; basis: string; week: WeekFile | null; hash: HashState; update: (p: HashState) => void }) {
   const byId = useMemo(() => new Map(core.players.map((p) => [p.id, p])), [core]);
@@ -90,12 +80,11 @@ export function PlayerView({ core, season, basis, week, hash, update }: { core: 
 
       {pair && <HeaderCards p={player} pair={pair} />}
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-        <CoverageChart p={player} d={d} L={core.meta.league.defense} />
-        <div className="space-y-4">
-          {pair && <Reasons p={player} pair={pair} />}
-          <AlignmentPanel p={player} d={d} pair={pair} />
-        </div>
+      <CoverageMatchup p={player} d={d} pair={pair} />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        {pair && <Reasons p={player} pair={pair} />}
+        <AlignmentPanel p={player} d={d} pair={pair} />
       </div>
 
       <RealEdges p={player} d={d} />
@@ -238,74 +227,6 @@ function Reasons({ p, pair }: { p: Player; pair: Pair }) {
           </ul>
         </>
       )}
-    </Panel>
-  );
-}
-
-function CoverageChart({ p, d, L }: { p: Player; d: Defense; L: Record<string, number> }) {
-  const cov = new Map(d.coverage.map((c) => [c.key, c]));
-  // Edge / concern compare each coverage with his own level, the same yardstick as coverage fit:
-  // his expected rate against the league's mix of the coverages on that row's axis.
-  const fp = (k: CoverageKey) => p.splits[k].metrics.YPRR!.adj;
-  const wr = (k: CoverageKey) => p.splits[k].metrics.WIN_RATE!.index ?? 1;
-  const mix = (a: number, b: number) => [a / (a + b), b / (a + b)];
-  const [lm, lz] = mix(L.MAN_PCT, L.ZONE_PCT);
-  const [l1, l2] = mix(L.ONE_HI_PCT, L.TWO_HI_PCT);
-  const zoneTot = L.COVER_2_PCT + L.COVER_3_PCT + L.COVER_4_PCT + L.COVER_6_PCT;
-  const zoneBase = (['C2', 'C3', 'C4', 'C6'] as CoverageKey[]).reduce((s, k) => s + (L[`COVER_${k.slice(1)}_PCT`] / zoneTot) * wr(k), 0);
-  const own: Record<string, { mine: number; base: number }> = {
-    MAN: { mine: fp('MAN'), base: lm * fp('MAN') + lz * fp('ZONE') },
-    ZONE: { mine: fp('ZONE'), base: lm * fp('MAN') + lz * fp('ZONE') },
-    SINGLE_HIGH: { mine: fp('SINGLE_HIGH'), base: l1 * fp('SINGLE_HIGH') + l2 * fp('TWO_HIGH') },
-    TWO_HIGH: { mine: fp('TWO_HIGH'), base: l1 * fp('SINGLE_HIGH') + l2 * fp('TWO_HIGH') },
-    C2: { mine: wr('C2'), base: zoneBase },
-    C3: { mine: wr('C3'), base: zoneBase },
-    C4: { mine: wr('C4'), base: zoneBase },
-    C6: { mine: wr('C6'), base: zoneBase },
-  };
-  return (
-    <Panel title={`${d.team} coverage vs ${p.name}`} note="Left: how much more (or less) this defense plays it than the league. Right: his index vs league in it.">
-      <div className="grid grid-cols-[6.5rem_minmax(0,1fr)_minmax(0,1fr)] items-center gap-x-3 gap-y-1.5 text-[12px] sm:grid-cols-[7.5rem_minmax(0,1fr)_minmax(0,1fr)_4.5rem]">
-        <span />
-        <span className="text-center text-[10.5px] uppercase tracking-wider text-ink-3">{d.team} usage vs league</span>
-        <span className="text-center text-[10.5px] uppercase tracking-wider text-ink-3">His index (1.00 = lg)</span>
-        <span className="hidden sm:block" />
-        {CHART.map((c, i) => {
-          const s = p.splits[c.key];
-          const m = s.metrics[c.metric]!;
-          const u = cov.get(c.def)!;
-          const diff = u.pct - u.league;
-          const ix = m.index ?? 1;
-          const above = diff > 0.5;
-          const o = own[c.key];
-          const rel = o.mine / o.base;
-          const tag = above && rel > 1.02 ? 'edge' : above && rel < 0.98 ? 'concern' : null;
-          const routes = c.metric === 'YPRR' ? s.routes : (s.sep_routes ?? s.routes);
-          return (
-            <div key={c.key} className={`contents ${i === 4 ? '[&>*]:mt-2' : ''}`}>
-              <span className="font-medium">
-                {s.label}
-                {routes < 20 && <LowSample routes={routes} />}
-                <span className="block text-[10.5px] font-normal text-ink-3">{c.metric === 'YPRR' ? 'yds/route' : 'win rate'} · {n0(routes)} rte</span>
-              </span>
-              <span className="flex items-center gap-2">
-                <DivBar value={diff} max={20} label={`${d.team} ${s.label}: ${pct(u.pct)} of dropbacks vs league ${pct(u.league)}`} />
-                <span className="num w-[5.5rem] shrink-0 text-right text-[11.5px]">
-                  {pct(u.pct)} <span className="text-ink-3">lg {pct(u.league)}</span>
-                </span>
-              </span>
-              <span className="flex items-center gap-2">
-                <DivBar value={ix - 1} max={0.6} tone={tag === 'edge' ? 'good' : tag === 'concern' ? 'bad' : 'neutral'} label={`${p.name} ${s.label} index ${idx(ix)} (adj ${c.metric === 'YPRR' ? n2(m.adj) : pct(m.adj, 1)} vs league ${c.metric === 'YPRR' ? n2(m.league) : pct(m.league, 1)})`} />
-                <span className="num w-[2.5rem] shrink-0 text-right text-[11.5px]">{idx(ix)}</span>
-              </span>
-              <span className="col-span-3 -mt-1 sm:col-span-1 sm:mt-0">{tag && <Pill tone={tag === 'edge' ? 'good' : 'bad'}>{tag}</Pill>}</span>
-            </div>
-          );
-        })}
-      </div>
-      <p className="mt-3 text-[11px] text-ink-3">
-        Edge: the defense plays it more than league and it's one of his better coverages (above his own average across that axis). Concern: plays it more, and it's one of his weaker ones. Bars show his index vs league, after shrinkage; Cover 2/3/4/6 have no yardage split, so they use win rate. Cover 0/1/2 Man are covered by the Man row.
-      </p>
     </Panel>
   );
 }
