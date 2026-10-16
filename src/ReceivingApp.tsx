@@ -41,7 +41,7 @@ export default function ReceivingApp() {
 
   const update = (patch: HashState) => {
     setHash((h) => ({ ...h, ...patch }));
-    // Switching views (e.g. View → from far down the slate) starts the new view at the top.
+    // Switching views (e.g. clicking a row far down the slate) starts the new view at the top.
     if (patch.tab) window.scrollTo({ top: 0 });
   };
 
@@ -86,7 +86,7 @@ export default function ReceivingApp() {
         </div>
       </header>
 
-      <main className="mx-auto w-full max-w-[1320px] flex-1 px-4 py-5">
+      <main className="mx-auto w-full max-w-[1600px] flex-1 px-4 py-5">
         {!index && <p className="text-ink-2">No data yet. Run the pipeline (see README) and commit data/.</p>}
         {error && <p className="rounded-md border border-bad/40 bg-panel px-3 py-2 text-bad">{error}</p>}
         {index && (
@@ -155,7 +155,7 @@ export default function ReceivingApp() {
       </main>
 
       <footer className="border-t border-line px-4 py-3 text-[11.5px] text-ink-3">
-        <div className="mx-auto max-w-[1320px]">
+        <div className="mx-auto max-w-[1600px]">
           <p>
             Data as of <span className="text-ink-2">{formatAsOf(core?.meta.data_as_of ?? index?.data_as_of)}</span> · FantasyPoints Data Suite exports, season to date · PPR.
             Projections are matchup-adjusted (his routes per game × matchup-adjusted FP per route), not full projections.

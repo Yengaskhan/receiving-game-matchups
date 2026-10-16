@@ -100,11 +100,11 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
             ))}
             <span className="ml-2">
               {week.games.length} games · {formatDate(week.games[0]?.gameday)} – {formatDate(week.games[week.games.length - 1]?.gameday)}
-              {week.byes.length > 0 && ` · bye: ${week.byes.join(', ')}`} · {rows.length} players shown · scores are ranked within position · coverage edge: ▲ real edge / ▼ real weakness in a coverage the opponent plays at a top-5 rate (#rank · confidence)
+              {week.byes.length > 0 && ` · bye: ${week.byes.join(', ')}`} · {rows.length} players shown · click a row for the full matchup · scores are ranked within position · coverage edge: ▲ real edge / ▼ real weakness in a coverage the opponent plays at a top-5 rate (#rank · confidence)
             </span>
           </div>
           <div className="overflow-x-auto rounded-md border border-line bg-panel">
-            <table className="num w-full min-w-[960px] border-collapse text-[12.5px]">
+            <table className="num w-full min-w-[880px] border-collapse text-[12.5px]">
               <thead className="border-b border-line bg-panel-2/60">
                 <tr className="text-left">
                   <Th k="name" className="sticky left-0 z-10 bg-panel-2">Player</Th>
@@ -113,9 +113,8 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
                   <Th className="min-w-[11rem]">Coverage edge</Th>
                   <Th k="proj" className="text-right">Proj. (PPR)</Th>
                   <Th k="fit" className="text-right">Cov. fit</Th>
-                  <Th className="min-w-[22rem]">Top reason</Th>
+                  <Th className="min-w-[15rem]">Top reason</Th>
                   <Th k="routes_pg" className="text-right">Routes / G</Th>
-                  <Th className="text-center">Matchup detail</Th>
                 </tr>
               </thead>
               <tbody>
@@ -176,16 +175,11 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
                       {n1(r.routes_pg)}
                       <span className="block text-[10.5px] text-ink-3">{n0(r.routes)} total</span>
                     </td>
-                    <td className="px-3 py-2 text-center">
-                      <button type="button" onClick={() => update({ tab: 'player', player: r.player, opp: r.opponent })} className="h-7 whitespace-nowrap rounded border border-accent/50 px-2.5 text-[12px] text-accent hover:bg-accent/10">
-                        View →
-                      </button>
-                    </td>
                   </tr>
                 ))}
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="px-3 py-6 text-center text-ink-3">
+                    <td colSpan={8} className="px-3 py-6 text-center text-ink-3">
                       No players match these filters.
                     </td>
                   </tr>
