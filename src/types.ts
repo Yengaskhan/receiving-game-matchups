@@ -161,5 +161,8 @@ export interface SeasonIndex {
   season: number;
   current_week: number;
   data_as_of: string;
-  weeks: { week: number; games: number; path: string; data_as_of: string; first_gameday: string | null; last_gameday: string | null }[];
+  default_basis: string;
+  /** The views: the current season, prior seasons, and all seasons combined. */
+  bases: { key: string; label: string; note: string }[];
+  weeks: { week: number; games: number; file: string; data_as_of: string; first_gameday: string | null; last_gameday: string | null; bases: string[] }[];
 }

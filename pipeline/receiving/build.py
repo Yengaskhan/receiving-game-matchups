@@ -24,6 +24,13 @@ from .load import Export, FormatError
 from .teams import TeamMap
 
 
+def rpg_of(p: dict) -> float:
+    """Routes per game in his current role (the current season), else from this view's data."""
+    if p.get("RPG") is not None:
+        return p["RPG"]
+    return p["OVERALL_RTE"] / p["G"] if p["G"] else 0.0
+
+
 def r4(v):
     if v is None:
         return None
@@ -90,12 +97,14 @@ def check_inputs(ex: dict[str, Export], joined: pl.DataFrame, reports: list[Join
 # ------------------------------------------------------------------------------------------------
 
 def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport], tm: TeamMap,
-          season: int, week: int, games: list[dict]) -> dict:
+          season: int, week: int, games: list[dict], basis: str, current_rpg: dict[tuple, float] | None = None) -> dict:
     checks = check_inputs(ex, joined, reports)
 
     players = [dict(p, TEAM_NFL=tm.fp(p["TEAM"], "receiving-situation.csv")) for p in joined.to_dicts()]
     for p in players:
         p["id"] = slug(p["NAME"], p["TEAM_NFL"])
+        if current_rpg is not None:
+            p["RPG"] = current_rpg.get((p["NAME"], p["TEAM"], p["POS"]))
     ids = [p["id"] for p in players]
     if len(set(ids)) != len(ids):
         raise FormatError("two players share a name and team; can't give them distinct ids.")
@@ -176,7 +185,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         o = opp.get(p["TEAM_NFL"])
         players_out.append({
             "id": p["id"], "name": p["NAME"], "team": p["TEAM_NFL"], "fp_team": p["TEAM"], "pos": p["POS"], "g": p["G"],
-            "routes": p["OVERALL_RTE"], "routes_pg": p["OVERALL_RTE"] / p["G"] if p["G"] else 0,
+            "routes": p["OVERALL_RTE"], "routes_pg": rpg_of(p),
             "opponent": o[0] if o else None, "home": o[1] if o else None,
             "overall": {"fp_rr": p["OVERALL_FP_RR"], "adj_fp_rr": pr["adj_overall"], "pos_avg": pr["pos_avg"], "yprr": p["OVERALL_YPRR"],
                         "tprr": p["OVERALL_TPRR"], "win_rate": p["OVERALL_WIN_RATE"], "sep_score": p["OVERALL_SEP_SCORE"],
@@ -227,7 +236,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
             continue
         po = pair_out(p["id"], o[0])
         rows.append({"player": p["id"], "name": p["NAME"], "team": p["TEAM_NFL"], "pos": p["POS"], "opponent": o[0], "home": o[1],
-                     "game_id": o[2], "routes": p["OVERALL_RTE"], "routes_pg": p["OVERALL_RTE"] / p["G"] if p["G"] else 0,
+                     "game_id": o[2], "routes": p["OVERALL_RTE"], "routes_pg": rpg_of(p),
                      "score": po["score"], "proj": po["proj"], "fp_rr": po["fp_rr"], "adj_fp_rr": profs[p["id"]]["adj_overall"],
                      "fit": po["fit"], "cov_index": po["cov_index"], "align_index": po["align_index"], "parts": po["parts"],
                      "reasons": po["reasons"], "flags": po["flags"], "coverage_edges": po["coverage_edges"]})
@@ -245,7 +254,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
 
     as_of = max(e.exported_at for e in ex.values())
     meta = {
-        "schema": SCHEMA_VERSION, "season": season, "week": week,
+        "schema": SCHEMA_VERSION, "season": season, "week": week, "basis": basis,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "data_as_of": as_of, "exports": {e.file: e.exported_at for e in ex.values()},
         "model": M.MODEL,
@@ -258,7 +267,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         "checks": checks,
     }
     week_out = {
-        "schema": SCHEMA_VERSION, "season": season, "week": week, "data_as_of": as_of, "generated_at": meta["generated_at"],
+        "schema": SCHEMA_VERSION, "season": season, "week": week, "basis": basis, "data_as_of": as_of, "generated_at": meta["generated_at"],
         "games": games, "byes": byes, "ref_size": {pos: len(sc.ref) for pos, sc in scales.items()},
         "score_scale": {pos: {"mean": sc.mean, "sd": sc.sd} for pos, sc in scales.items()}, "rows": rows,
     }
@@ -266,8 +275,9 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
             "_debug": {"rows": rows}}
 
 
-def write(out: dict, root: Path, season: int, week: int) -> list[Path]:
-    d = root / str(season)
+def write(out: dict, root: Path, season: int, week: int, basis: str) -> list[Path]:
+    """One view's files under data/<season>/<basis>/."""
+    d = root / str(season) / basis
     (d / "pairs").mkdir(parents=True, exist_ok=True)
     written = []
 
@@ -276,22 +286,38 @@ def write(out: dict, root: Path, season: int, week: int) -> list[Path]:
         written.append(path)
 
     dump(d / "meta.json", out["meta"])
-    dump(d / "players.json", {"schema": SCHEMA_VERSION, "season": season, "week": week, "players": out["players"]})
-    dump(d / "defenses.json", {"schema": SCHEMA_VERSION, "season": season, "week": week, "defenses": out["defenses"]})
+    dump(d / "players.json", {"schema": SCHEMA_VERSION, "season": season, "week": week, "basis": basis, "players": out["players"]})
+    dump(d / "defenses.json", {"schema": SCHEMA_VERSION, "season": season, "week": week, "basis": basis, "defenses": out["defenses"]})
     for t, obj in out["pairs"].items():
-        dump(d / "pairs" / f"{t}.json", obj)
+        dump(d / "pairs" / f"{t}.json", dict(obj, basis=basis))
     for stale in (d / "pairs").glob("*.json"):
         if stale.stem not in out["pairs"]:
             stale.unlink()
     dump(d / f"week-{week:02d}.json", out["week"])
-
-    weeks = []
-    for f in sorted(d.glob("week-*.json")):
-        r = json.loads(f.read_text())
-        weeks.append({"week": r["week"], "games": len(r["games"]), "path": f"data/{season}/{f.name}", "data_as_of": r["data_as_of"],
-                      "first_gameday": min((g["gameday"] for g in r["games"]), default=None),
-                      "last_gameday": max((g["gameday"] for g in r["games"]), default=None)})
-    idx = {"schema": SCHEMA_VERSION, "season": season, "current_week": week, "data_as_of": out["meta"]["data_as_of"], "weeks": weeks}
-    (d / "index.json").write_text(json.dumps(idx, indent=1) + "\n")
-    written.append(d / "index.json")
     return written
+
+
+def write_index(root: Path, season: int, week: int, bases: list[dict], data_as_of: str) -> Path:
+    """data/<season>/index.json: the views, and the weeks on disk (from the current-season view)."""
+    d = root / str(season)
+    # Files from before views existed (data/<season>/meta.json, pairs/, week-XX.json) are replaced.
+    for old in ("meta.json", "players.json", "defenses.json"):
+        (d / old).unlink(missing_ok=True)
+    for old in d.glob("week-*.json"):
+        old.unlink()
+    if (d / "pairs").is_dir():
+        for f in (d / "pairs").glob("*.json"):
+            f.unlink()
+        (d / "pairs").rmdir()
+    weeks = []
+    for f in sorted((d / str(season)).glob("week-*.json")):
+        r = json.loads(f.read_text())
+        weeks.append({"week": r["week"], "games": len(r["games"]), "file": f.name, "data_as_of": r["data_as_of"],
+                      "first_gameday": min((g["gameday"] for g in r["games"]), default=None),
+                      "last_gameday": max((g["gameday"] for g in r["games"]), default=None),
+                      "bases": [b["key"] for b in bases if (d / b["key"] / f.name).exists()]})
+    idx = {"schema": SCHEMA_VERSION, "season": season, "current_week": week, "data_as_of": data_as_of,
+           "default_basis": str(season), "bases": bases, "weeks": weeks}
+    p = d / "index.json"
+    p.write_text(json.dumps(idx, indent=1) + "\n")
+    return p

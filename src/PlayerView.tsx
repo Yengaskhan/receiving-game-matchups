@@ -18,25 +18,26 @@ const CHART: { key: CoverageKey; def: string; metric: 'YPRR' | 'WIN_RATE' }[] = 
   { key: 'C6', def: 'C6', metric: 'WIN_RATE' },
 ];
 
-export function PlayerView({ core, season, week, hash, update }: { core: Core; season: number; week: WeekFile | null; hash: HashState; update: (p: HashState) => void }) {
+export function PlayerView({ core, season, basis, week, hash, update }: { core: Core; season: number; basis: string; week: WeekFile | null; hash: HashState; update: (p: HashState) => void }) {
   const byId = useMemo(() => new Map(core.players.map((p) => [p.id, p])), [core]);
   const defs = useMemo(() => new Map(core.defenses.map((d) => [d.team, d])), [core]);
   const player = byId.get(hash.player ?? '') ?? core.players[0];
+  const missing = !!hash.player && !byId.has(hash.player);
   const opp = hash.opp && defs.has(hash.opp) && hash.opp !== player.team ? hash.opp : (player.opponent ?? core.defenses.find((d) => d.team !== player.team)!.team);
   const d = defs.get(opp)!;
 
-  const [pairFile, setPairFile] = useState<{ team: string; rows: Map<string, Pair> } | null>(null);
+  const [pairFile, setPairFile] = useState<{ team: string; basis: string; rows: Map<string, Pair> } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    loadPairs(season, opp)
-      .then((f) => live && (setPairFile({ team: opp, rows: new Map(f.rows.map((r) => [r.player, r])) }), setError(null)))
+    loadPairs(season, basis, opp)
+      .then((f) => live && (setPairFile({ team: opp, basis, rows: new Map(f.rows.map((r) => [r.player, r])) }), setError(null)))
       .catch((e) => live && setError(String(e)));
     return () => {
       live = false;
     };
-  }, [season, opp]);
-  const pair = pairFile?.team === opp ? pairFile.rows.get(player.id) ?? null : null;
+  }, [season, basis, opp]);
+  const pair = pairFile?.team === opp && pairFile.basis === basis ? pairFile.rows.get(player.id) ?? null : null;
   const scheduled = player.opponent === opp;
 
   return (
@@ -67,6 +68,11 @@ export function PlayerView({ core, season, week, hash, update }: { core: Core; s
           )}
         </p>
       </div>
+      {missing && (
+        <p className="rounded-md border border-warn/40 bg-panel px-3 py-2 text-[12px] text-ink-2">
+          That player has no data in this view (e.g. a rookie in the {basis} data), so {player.name} is shown instead. Switch the Data setting back to see him.
+        </p>
+      )}
       {error && <p className="text-bad">{error}</p>}
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">

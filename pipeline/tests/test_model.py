@@ -148,7 +148,7 @@ DATA = Path(__file__).resolve().parents[2] / "data"
 @pytest.mark.skipif(not (DATA / "2026" / "index.json").exists(), reason="no outputs yet")
 def test_committed_week_scores():
     idx = json.loads((DATA / "2026" / "index.json").read_text())
-    w = json.loads((DATA / "2026" / f"week-{idx['current_week']:02d}.json").read_text())
+    w = json.loads((DATA / "2026" / "2026" / f"week-{idx['current_week']:02d}.json").read_text())
     rows = [r for r in w["rows"] if r["routes"] >= 50]
     assert rows and all(r["score"] is not None and 0 <= r["score"] <= 100 for r in rows)
     assert 45 <= sum(r["score"] for r in rows) / len(rows) <= 55
@@ -170,7 +170,7 @@ def test_score_blend_weights_and_cap():
 @pytest.mark.skipif(not (DATA / "2026" / "index.json").exists(), reason="no outputs yet")
 def test_scores_are_centred_within_each_position():
     idx = json.loads((DATA / "2026" / "index.json").read_text())
-    w = json.loads((DATA / "2026" / f"week-{idx['current_week']:02d}.json").read_text())
+    w = json.loads((DATA / "2026" / "2026" / f"week-{idx['current_week']:02d}.json").read_text())
     for pos in ("WR", "TE"):
         rows = [r for r in w["rows"] if r["routes"] >= 50 and r["pos"] == pos]
         assert 45 <= sum(r["score"] for r in rows) / len(rows) <= 55

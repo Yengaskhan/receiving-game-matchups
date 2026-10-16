@@ -415,7 +415,8 @@ def matchup(p: dict, prof: dict, d: dict, dprof: dict, lg: League) -> dict:
 
     ratio = (fit ** MODEL["w_fit"]) * (dprof["cov_index"] ** MODEL["w_cov_allowed"]) * (align_idx ** MODEL["w_align_allowed"])
     fp_rr = prof["adj_overall"] * ratio
-    rpg = p["OVERALL_RTE"] / p["G"] if p["G"] else 0.0
+    # Routes per game: his current-season role (RPG, set for prior / total views), else this data's.
+    rpg = p.get("RPG") if p.get("RPG") is not None else (p["OVERALL_RTE"] / p["G"] if p["G"] else 0.0)
     return {
         "axes": axes, "base_fit": base_fit, "zone_fit": zf, "fit": fit, "cov_yards": cov_yards, "e_league": e_lg,
         "cov_index": dprof["cov_index"], "align_index": align_idx, "align_weights": align_parts,

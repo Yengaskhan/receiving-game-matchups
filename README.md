@@ -48,6 +48,23 @@ npm install && npm run dev                              # local site
 npm run build                                           # typecheck + data checks + bundle (what Netlify runs)
 ```
 
+## Seasons: 2026, 2025, or both
+
+A **Data** switch at the top of the page picks which numbers the report uses. Default: the current season.
+- **2026** (default): the six exports in `data/raw/`.
+- **2025**: the six 2025 exports in `data/raw/2025/` (same file names).
+- **2025–2026**: both seasons combined.
+
+Every view scores *this week's* matchups:
+- **Players are on their current teams.** A 2025 row is matched to the 2026 player by Name + POS. A player with two 2025 rows (traded) is combined first. Players not in the 2026 exports are left out of the 2025 and combined views; the pipeline prints how many. Rookies have no 2025 data, so they only show in 2026 and combined.
+- **Projections use 2026 routes per game** in every view, so they reflect his current role. Efficiency comes from the chosen view.
+- **Combining (players):** routes, targets, yards, TDs, air yards and games add up. Every rate is the route-weighted average using that split's own routes, which is the same as recomputing it from the summed counts. Alignment shares are recomputed from routes.
+- **Combining (defenses):** games and dropbacks add up. Coverage shares and team-defense rates are weighted by dropbacks. FP per dropback vs a coverage is weighted by the dropbacks in that coverage. Points allowed are summed, and per-game and per-target numbers recomputed.
+- **Columns that only one season has** are left out of the combined view. Example: the 2025 coverage matrix's Blitz group.
+- **Scores are ranked within each view**, so 50 is neutral in every view.
+
+To add another prior season (e.g. 2024), put its six exports in `data/raw/2024/`, add `2024` to `PRIOR_SEASONS` in `pipeline/receiving/config.py`, and push. "Total" then covers every listed season. The output goes to `data/<season>/<view>/`; `data/<season>/index.json` lists the views and weeks.
+
 ## Deploy (one time)
 
 1. In Netlify: **Add new site → Import an existing project → GitHub**, then pick **Yengaskhan/receiving-game-matchups**.

@@ -18,8 +18,9 @@ import polars as pl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from receiving.build import build, write  # noqa: E402
-from receiving.config import COVERAGE_AGREE_TOL, FILES, OUTPUT_DIR, PLAYER_FILES, POSITIONS, SEASON  # noqa: E402
+from receiving.build import build, write, write_index  # noqa: E402
+from receiving.seasons import combine_exports, rekey_to_current  # noqa: E402
+from receiving.config import COVERAGE_AGREE_TOL, FILES, OUTPUT_DIR, PLAYER_FILES, POSITIONS, PRIOR_SEASONS, RAW_DIR, SEASON  # noqa: E402
 from receiving.join import join_player_files  # noqa: E402
 from receiving.load import FormatError, load_all  # noqa: E402
 from receiving.teams import TeamMapError, load_team_map  # noqa: E402
@@ -132,42 +133,81 @@ def schedule_week(season: int, week: int | None) -> tuple[int, list[dict]]:
     return week, games
 
 
+def load_views(tm) -> tuple[dict[str, dict], list[dict], dict[tuple, float]]:
+    """The exports behind each view: the current season, each prior season (players re-keyed to their
+    current team) and, when there are prior seasons, all seasons combined."""
+    from dataclasses import replace
+
+    cur = load_all(RAW_DIR)
+    views = {str(SEASON): cur}
+    labels = [{"key": str(SEASON), "label": f"{SEASON}", "note": f"{SEASON} season to date"}]
+    rekeyed = []
+    for season in PRIOR_SEASONS:
+        d = RAW_DIR / str(season)
+        if not d.is_dir():
+            continue
+        ex = load_all(d)
+        for k in PLAYER_FILES:
+            df, dropped = rekey_to_current(ex[k].df, cur[k].df)
+            if k == "situation":
+                print(f"{season}: {df.height} players matched to a {SEASON} team; {len(dropped)} not in the {SEASON} exports (left out)")
+            ex[k] = replace(ex[k], df=df)
+        views[str(season)] = ex
+        labels.append({"key": str(season), "label": f"{season}", "note": f"full {season} season, players on their {SEASON} teams"})
+        rekeyed.append(ex)
+    if rekeyed:
+        views["total"] = combine_exports([cur, *rekeyed])
+        first = min([SEASON, *[int(k) for k in views if k.isdigit()]])
+        labels.append({"key": "total", "label": f"{first}–{SEASON}", "note": f"{first} through {SEASON} combined"})
+    s = cur["situation"].df
+    rpg = {(r["NAME"], r["TEAM"], r["POS"]): (r["OVERALL_RTE"] / r["G"] if r["G"] else 0.0) for r in s.iter_rows(named=True)}
+    return views, labels, rpg
+
+
 def run(week_arg: int | None, out: Path) -> int:
-    ex = load_all()
     tm = load_team_map()
-    joined, reports = join_player_files(ex["situation"].df, {k: ex[k].df for k in PLAYER_FILES[1:]})
-    for r in reports:
-        if r.unmatched_base or r.unmatched_other:
-            print(f"{FILES[r.file]['file']}: unmatched rows (left out of that file's columns):")
-            for u in r.unmatched_base:
-                print(f"    in receiving-situation only: {u}")
-            for u in r.unmatched_other:
-                print(f"    in {FILES[r.file]['file']} only: {u}")
+    views, labels, rpg = load_views(tm)
     week, games = schedule_week(SEASON, week_arg)
     for g in games:
         for t in (g["away"], g["home"]):
             if t not in tm.names:
                 raise TeamMapError(f"schedule team {t!r} is not in data/team_map.csv (nflverse_code).")
-    res = build(ex, joined, reports, tm, SEASON, week, games)
-    for c in res["meta"]["checks"]:
-        print(f"  ok  {c}")
 
+    results = {}
+    for basis, ex in views.items():
+        print(f"\n==== View: {basis} ====")
+        joined, reports = join_player_files(ex["situation"].df, {k: ex[k].df for k in PLAYER_FILES[1:]})
+        for r in reports:
+            if r.unmatched_base or r.unmatched_other:
+                print(f"{FILES[r.file]['file']}: {len(r.unmatched_base)} situation rows and {len(r.unmatched_other)} {r.file} rows unmatched")
+        res = build(ex, joined, reports, tm, SEASON, week, games, basis, None if basis == str(SEASON) else rpg)
+        for c in res["meta"]["checks"]:
+            print(f"  ok  {c}")
+        report_week(res, week)
+        results[basis] = res
+
+    # Everything checked: now write.
+    n = 0
+    for basis, res in results.items():
+        n += len(write(res, out, SEASON, week, basis))
+    write_index(out, SEASON, week, labels, results[str(SEASON)]["meta"]["data_as_of"])
+    print(f"\nWrote {n + 1} files to {out / str(SEASON)} for views {', '.join(results)} "
+          f"(data as of {results[str(SEASON)]['meta']['data_as_of']} UTC)")
+    return 0
+
+
+def report_week(res: dict, week: int) -> None:
     rows = [r for r in res["week"]["rows"] if r["routes"] >= 50]
+
     def line(r):
         top = r["reasons"][0]["text"] if r["reasons"] else ""
-        return f"  {r['score']:>3}  {r['name']:<24} {r['pos']:<2} {r['team']:<3} {'vs' if r['home'] else '@ '} {r['opponent']:<3}  proj {r['proj']:5.1f}  fit {r['fit']:.2f}  cov {r['cov_index']:.2f}  align {r['align_index']:.2f}  | {top}"
-    print(f"\nWeek {week}: top 10 matchups (50+ routes)")
+        return f"  {r['score']:>3}  {r['name']:<24} {r['pos']:<2} {r['team']:<3} {'vs' if r['home'] else '@ '} {r['opponent']:<3}  proj {r['proj']:5.1f}  fit {r['fit']:.2f}  cov {r['cov_index']:.2f}  align {r['align_index']:.2f}  | {top[:110]}"
+    print(f"Week {week}: top 10 matchups (50+ routes)")
     print("\n".join(line(r) for r in rows[:10]))
-    print(f"\nWeek {week}: bottom 10 matchups (50+ routes)")
-    print("\n".join(line(r) for r in rows[-10:]))
+    print(f"Week {week}: bottom 5")
+    print("\n".join(line(r) for r in rows[-5:]))
     scores = sorted(r["score"] for r in rows)
-    q = lambda f: scores[int(f * (len(scores) - 1))]  # noqa: E731
-    print(f"\nScore distribution (n={len(scores)}): min {scores[0]}, p25 {q(.25)}, median {q(.5)}, p75 {q(.75)}, max {scores[-1]}; "
-          f"mean {sum(scores) / len(scores):.1f}")
-
-    written = write(res, out, SEASON, week)
-    print(f"\nWrote {len(written)} files to {out / str(SEASON)} (data as of {res['meta']['data_as_of']} UTC)")
-    return 0
+    print(f"Score distribution (n={len(scores)}): median {scores[len(scores) // 2]}, mean {sum(scores) / len(scores):.1f}")
 
 
 def main() -> int:

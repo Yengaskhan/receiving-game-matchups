@@ -10,7 +10,10 @@ RAW_DIR = ROOT / "data" / "raw"
 TEAM_MAP = ROOT / "data" / "team_map.csv"
 OUTPUT_DIR = ROOT / "data"
 SEASON = 2026
-SCHEMA_VERSION = 1
+# Prior seasons: their six exports live in data/raw/<season>/ with the same file names. Each one becomes a
+# view of its own, and all seasons together become the "total" view (see seasons.py).
+PRIOR_SEASONS = [2025]
+SCHEMA_VERSION = 2
 
 # ------------------------------------------------------------------------------------------------
 # Column naming
@@ -104,7 +107,9 @@ FILES = {
         "league_avg": ("NAME", "League Avg"),
         "sub_alias": {"1-HI/MOF C %": "ONE_HI %", "2-HI/MOF O %": "TWO_HI %"},
         # The four FP/DB columns are PPR points allowed to WR/TE per dropback vs the coverage before them.
-        "follows": {"FP/DB": {"MAN %": "FP_DB_MAN", "ZONE %": "FP_DB_ZONE", "1-HI/MOF C %": "FP_DB_1HI", "2-HI/MOF O %": "FP_DB_2HI"}},
+        "follows": {"FP/DB": {"MAN %": "FP_DB_MAN", "ZONE %": "FP_DB_ZONE", "1-HI/MOF C %": "FP_DB_1HI", "2-HI/MOF O %": "FP_DB_2HI",
+                              # Some exports (e.g. 2025) also have a Blitz group.
+                              "BLITZ %": "FP_DB_BLITZ", "NO BLITZ %": "FP_DB_NOBLITZ"}},
         "required": ["SEASON", "NAME", "G", "DB", "MAN_PCT", "ZONE_PCT", "ONE_HI_PCT", "TWO_HI_PCT",
                      "FP_DB_MAN", "FP_DB_ZONE", "FP_DB_1HI", "FP_DB_2HI", "DISGUISE_PCT", "TO_ONE_HI_PCT", "TO_TWO_HI_PCT",
                      "COVER_0_PCT", "COVER_1_PCT", "COVER_2_PCT", "COVER_2_MAN_PCT", "COVER_3_PCT", "COVER_4_PCT", "COVER_6_PCT",
@@ -129,7 +134,7 @@ FILES = {
 }
 
 # Columns kept as text; everything else must be numeric (blank = missing).
-TEXT_COLUMNS = {"NAME", "TEAM", "POS", "W_L_T"}
+TEXT_COLUMNS = {"NAME", "TEAM", "POS", "W_L_T", "PLAYER_ID"}
 
 # Player files are joined onto receiving-situation (the base) on Name + Team, then Name + POS.
 PLAYER_FILES = ("situation", "separation", "alignment")

@@ -8,20 +8,21 @@ import { BANDS, EdgeChip, ScoreBadge, Select, SortTh, type SortState } from './u
 
 type SortKey = 'name' | 'opponent' | 'score' | 'proj' | 'fit' | 'routes_pg';
 
-export function SlateView({ index, hash, update }: { index: SeasonIndex; hash: HashState; update: (p: HashState) => void }) {
+export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; basis: string; hash: HashState; update: (p: HashState) => void }) {
   const weekNo = Number(hash.week) || index.current_week;
-  const entry = index.weeks.find((w) => w.week === weekNo) ?? index.weeks[index.weeks.length - 1];
+  const avail = index.weeks.filter((w) => w.bases.includes(basis));
+  const entry = avail.find((w) => w.week === weekNo) ?? avail[avail.length - 1] ?? index.weeks[index.weeks.length - 1];
   const [week, setWeek] = useState<WeekFile | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
-    loadWeek(entry.path)
+    loadWeek(index.season, basis, entry.file)
       .then((w) => live && (setWeek(w), setError(null)))
       .catch((e) => live && setError(String(e)));
     return () => {
       live = false;
     };
-  }, [entry.path]);
+  }, [index.season, basis, entry.file]);
 
   const pos = hash.pos ?? 'all';
   const team = hash.team ?? 'all';
@@ -58,7 +59,7 @@ export function SlateView({ index, hash, update }: { index: SeasonIndex; hash: H
     const blob = new Blob([[head.map(esc).join(','), ...lines].join('\n') + '\n'], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `receiving-matchups-${week.season}-week-${String(week.week).padStart(2, '0')}.csv`;
+    a.download = `receiving-matchups-${week.season}-week-${String(week.week).padStart(2, '0')}${basis === index.default_basis ? '' : `-data-${basis}`}.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
@@ -68,7 +69,7 @@ export function SlateView({ index, hash, update }: { index: SeasonIndex; hash: H
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end gap-3">
-        <Select label="Week" value={String(entry.week)} onChange={(v) => update({ week: v })} options={index.weeks.map((w) => [String(w.week), `Week ${w.week}${w.week === index.current_week ? ' (current)' : ''}`])} />
+        <Select label="Week" value={String(entry.week)} onChange={(v) => update({ week: v })} options={avail.map((w) => [String(w.week), `Week ${w.week}${w.week === index.current_week ? ' (current)' : ''}`])} />
         <Select label="Position" value={pos} onChange={(v) => update({ pos: v })} options={[['all', 'WR + TE'], ['WR', 'WR'], ['TE', 'TE']]} />
         <Select label="Team" value={team} onChange={(v) => update({ team: v })} options={[['all', 'All teams'], ...teams.map((t) => [t, t] as [string, string])]} />
         <label className="flex flex-col gap-1 text-[10.5px] font-medium uppercase tracking-wider text-ink-3">
@@ -108,7 +109,7 @@ export function SlateView({ index, hash, update }: { index: SeasonIndex; hash: H
                 <tr className="text-left">
                   <Th k="name" className="sticky left-0 z-10 bg-panel-2">Player</Th>
                   <Th k="opponent" className="hidden sm:table-cell">Opponent</Th>
-                  <Th k="score" className="text-center">Matchup</Th>
+                  <Th k="score" className="hidden text-center sm:table-cell">Matchup</Th>
                   <Th className="min-w-[11rem]">Coverage edge</Th>
                   <Th k="proj" className="text-right">Proj. (PPR)</Th>
                   <Th k="fit" className="text-right">Cov. fit</Th>
@@ -152,7 +153,7 @@ export function SlateView({ index, hash, update }: { index: SeasonIndex; hash: H
                         {r.home ? 'vs' : '@'} <TeamLogo team={r.opponent} size={18} /> <span className="font-semibold text-ink">{r.opponent}</span>
                       </span>
                     </td>
-                    <td className="px-3 py-2 text-center">
+                    <td className="hidden px-3 py-2 text-center sm:table-cell">
                       <ScoreBadge score={r.score} small={r.routes < 50} />
                     </td>
                     <td className="px-3 py-2">

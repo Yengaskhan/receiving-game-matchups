@@ -23,7 +23,7 @@ const TABS: [Tab, string][] = [
 ];
 
 /** The view lives in the URL hash so a link goes straight to it. */
-export type HashState = Partial<Record<'tab' | 'player' | 'opp' | 'week' | 'team' | 'pos' | 'min' | 'filter' | 'edges', string>>;
+export type HashState = Partial<Record<'tab' | 'player' | 'opp' | 'week' | 'team' | 'pos' | 'min' | 'filter' | 'edges' | 'basis', string>>;
 
 function readHash(): HashState {
   return Object.fromEntries(new URLSearchParams(window.location.hash.slice(1))) as HashState;
@@ -35,6 +35,9 @@ export default function ReceivingApp() {
   const [core, setCore] = useState<Core | null>(null);
   const [error, setError] = useState<string | null>(null);
   const tab = (TABS.some(([t]) => t === hash.tab) ? hash.tab : 'slate') as Tab;
+  // Which data the numbers come from: the current season (default), a prior season, or all combined.
+  const basis = index?.bases.some((b) => b.key === hash.basis) ? hash.basis! : (index?.default_basis ?? '');
+  const basisMeta = index?.bases.find((b) => b.key === basis);
 
   const update = (patch: HashState) => {
     setHash((h) => ({ ...h, ...patch }));
@@ -48,16 +51,24 @@ export default function ReceivingApp() {
   }, [hash]);
 
   useEffect(() => {
-    if (!index) return;
-    loadCore(index.season).then(setCore).catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [index]);
+    if (!index || !basis) return;
+    let live = true;
+    setCore(null);
+    loadCore(index.season, basis)
+      .then((c) => live && (setCore(c), setError(null)))
+      .catch((e) => live && setError(e instanceof Error ? e.message : String(e)));
+    return () => {
+      live = false;
+    };
+  }, [index, basis]);
 
   // The current week's slate is needed by the player and defense tabs too (this week's opponent, best/worst).
   const [currentWeek, setCurrentWeek] = useState<WeekFile | null>(null);
   useEffect(() => {
     const w = index?.weeks.find((x) => x.week === index.current_week);
-    if (w) loadWeek(w.path).then(setCurrentWeek).catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, [index]);
+    setCurrentWeek(null);
+    if (w && index && w.bases.includes(basis)) loadWeek(index.season, basis, w.file).then(setCurrentWeek).catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, [index, basis]);
 
   return (
     <div className="flex min-h-full flex-col">
@@ -88,7 +99,33 @@ export default function ReceivingApp() {
                 <h1 className="text-[22px] font-semibold tracking-tight">Receiving Game Matchup Report</h1>
                 <p className="text-[12px] text-ink-2">Each WR and TE against the opposing defense's coverage mix, and what that defense allows.</p>
               </div>
+              {index.bases.length > 1 && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10.5px] font-medium uppercase tracking-wider text-ink-3">Data</span>
+                  <div role="radiogroup" aria-label="Which seasons' data" className="inline-flex rounded border border-line-2 bg-panel-2 p-0.5">
+                    {index.bases.map((b) => (
+                      <button
+                        key={b.key}
+                        type="button"
+                        role="radio"
+                        aria-checked={basis === b.key}
+                        title={b.note}
+                        onClick={() => update({ basis: b.key === index.default_basis ? undefined : b.key })}
+                        className={`h-7 rounded px-3 text-[12.5px] ${basis === b.key ? 'bg-accent/15 font-semibold text-accent' : 'text-ink-2 hover:text-ink'}`}
+                      >
+                        {b.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
+            {basisMeta && basis !== index.default_basis && (
+              <p className="mt-3 rounded-md border border-line-2 bg-panel-2 px-3 py-2 text-[12px] text-ink-2">
+                <span className="font-semibold text-ink">Showing {basisMeta.note}.</span> This week's {index.season} matchups, scored with that data. Players are on their {index.season} teams;
+                projections use their {index.season} routes per game. Players with no data in it aren't listed.
+              </p>
+            )}
             <nav className="mt-4 flex gap-1 overflow-x-auto border-b border-line" aria-label="Views">
               {TABS.map(([t, label]) => (
                 <button
@@ -106,9 +143,9 @@ export default function ReceivingApp() {
               {!core ? (
                 !error && <p className="text-ink-3">Loading…</p>
               ) : tab === 'player' ? (
-                <PlayerView core={core} season={index.season} week={currentWeek} hash={hash} update={update} />
+                <PlayerView core={core} season={index.season} basis={basis} week={currentWeek} hash={hash} update={update} />
               ) : tab === 'slate' ? (
-                <SlateView index={index} hash={hash} update={update} />
+                <SlateView index={index} basis={basis} hash={hash} update={update} />
               ) : (
                 <DefenseView core={core} week={currentWeek} hash={hash} update={update} />
               )}

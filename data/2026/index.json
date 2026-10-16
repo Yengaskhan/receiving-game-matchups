@@ -1,16 +1,39 @@
 {
- "schema": 1,
+ "schema": 2,
  "season": 2026,
  "current_week": 6,
  "data_as_of": "2026-10-14 22:08",
+ "default_basis": "2026",
+ "bases": [
+  {
+   "key": "2026",
+   "label": "2026",
+   "note": "2026 season to date"
+  },
+  {
+   "key": "2025",
+   "label": "2025",
+   "note": "full 2025 season, players on their 2026 teams"
+  },
+  {
+   "key": "total",
+   "label": "2025\u20132026",
+   "note": "2025 through 2026 combined"
+  }
+ ],
  "weeks": [
   {
    "week": 6,
    "games": 14,
-   "path": "data/2026/week-06.json",
+   "file": "week-06.json",
    "data_as_of": "2026-10-14 22:08",
    "first_gameday": "2026-10-15",
-   "last_gameday": "2026-10-19"
+   "last_gameday": "2026-10-19",
+   "bases": [
+    "2026",
+    "2025",
+    "total"
+   ]
   }
  ]
 }
