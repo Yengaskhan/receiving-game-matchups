@@ -9,7 +9,7 @@ import type { CoverageKey, Defense, Pair, Player } from './types';
  * one-line verdict with how confident we are his gap is real.
  */
 
-type Tone = 'good' | 'bad' | 'neutral';
+export type Tone = 'good' | 'bad' | 'neutral';
 const TONE_BAR: Record<Tone, string> = { good: 'bg-edge-good', bad: 'bg-edge-bad', neutral: 'bg-ink-3/70' };
 const TONE_TEXT: Record<Tone, string> = { good: 'text-edge-good', bad: 'text-edge-bad', neutral: 'text-ink-2' };
 
@@ -36,8 +36,10 @@ function sides(p: Player, d: Defense, keys: [CoverageKey, string][], metric: 'YP
 const pctTxt = (v: number) => `${Math.round(v * 100)}%`;
 
 /** A 100% bar of this defense's mix, with the league's mix underneath for comparison. */
-function MixBars({ team, ss, lean }: { team: string; ss: Side[]; lean: CoverageKey | null }) {
-  const row = (label: string, get: (s: Side) => number, strong: boolean) => (
+export interface MixSide { key: string; label: string; share: number; league: number }
+
+export function MixBars({ team, ss, lean, minLabel = 0.14 }: { team: string; ss: MixSide[]; lean: string | null; minLabel?: number }) {
+  const row = (label: string, get: (s: MixSide) => number, strong: boolean) => (
     <div className="grid grid-cols-[3.25rem_minmax(0,1fr)] items-center gap-2">
       <span className={`text-[10.5px] font-semibold uppercase tracking-wider ${strong ? 'text-ink' : 'text-ink-3'}`}>{label}</span>
       <div className={`flex overflow-hidden rounded ${strong ? 'h-6' : 'h-3'}`}>
@@ -50,7 +52,7 @@ function MixBars({ team, ss, lean }: { team: string; ss: Side[]; lean: CoverageK
               strong ? (s.key === lean ? 'bg-accent/80 text-bg' : 'bg-raise text-ink-2') : s.key === lean ? 'bg-accent/35' : 'bg-line-2'
             }`}
           >
-            {strong && get(s) >= 0.14 ? `${s.label} ${pctTxt(get(s))}` : ''}
+            {strong && get(s) >= minLabel ? `${s.label} ${pctTxt(get(s))}` : ''}
           </div>
         ))}
       </div>
@@ -92,7 +94,7 @@ function IndexBars({ name, ss, tones, unit }: { name: string; ss: Side[]; tones:
   );
 }
 
-function Verdict({ tone, delta }: { tone: Tone; delta: string }) {
+export function Verdict({ tone, delta }: { tone: Tone; delta: string }) {
   const label = tone === 'good' ? 'Edge' : tone === 'bad' ? 'Concern' : 'Neutral';
   return (
     <span className={`inline-flex items-center gap-1.5 rounded border px-2 py-0.5 text-[12px] font-semibold ${tone === 'good' ? 'border-edge-good/50 bg-edge-good/10 text-edge-good' : tone === 'bad' ? 'border-edge-bad/50 bg-edge-bad/10 text-edge-bad' : 'border-line-2 text-ink-2'}`}>
@@ -101,7 +103,7 @@ function Verdict({ tone, delta }: { tone: Tone; delta: string }) {
   );
 }
 
-function Card({ title, verdict, children, footer }: { title: string; verdict: ReactNode; children: ReactNode; footer: ReactNode }) {
+export function Card({ title, verdict, children, footer }: { title: string; verdict: ReactNode; children: ReactNode; footer: ReactNode }) {
   return (
     <section className="flex flex-col rounded-md border border-line bg-panel">
       <header className="flex items-center justify-between gap-2 border-b border-line px-3 py-2">
