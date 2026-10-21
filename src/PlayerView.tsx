@@ -175,8 +175,11 @@ function HeaderCards({ p, pair }: { p: Player; pair: Pair }) {
   const top = edge ?? concern;
   return (
     <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-      <Card label="Matchup Score" sub={`Compared with his normal week: above 50 = should beat his usual output, below = tougher than usual. Ranked among ${p.pos}s this week${p.routes < 50 ? ' · small sample (under 50 routes)' : ''}`}>
-        <ScoreBadge score={pair.score} small={p.routes < 50} lg />
+      <Card label="Matchup Score" sub={`Expected change in his production vs his normal week. 50 = normal; +5% ≈ 66, +10% ≈ 79, −5% ≈ 34. Ranked among ${p.pos}s this week${p.routes < 50 ? ' · small sample (under 50 routes)' : ''}`}>
+        <span className="flex items-center gap-3">
+          <ScoreBadge score={pair.score} small={p.routes < 50} lg />
+          {pair.delta != null && <span className={`num text-[18px] font-semibold ${pair.delta > 0.01 ? 'text-edge-good' : pair.delta < -0.01 ? 'text-edge-bad' : 'text-ink-2'}`}>{signed(pair.delta * 100, 1, '%')}</span>}
+        </span>
       </Card>
       <Card label="Matchup-adjusted projection" sub={`${n1(p.routes_pg)} routes × ${n3(pair.fp_rr)} FP/RR (his adj. ${n3(p.overall.adj_fp_rr)})`}>
         <span className="num text-[22px] font-semibold">{n1(pair.proj)}</span> <span className="text-ink-3">PPR</span>
@@ -215,7 +218,7 @@ function Reasons({ p, pair }: { p: Player; pair: Pair }) {
         {pair.reasons.length === 0 && <li className="text-ink-3">A neutral matchup: no factor moves it much.</li>}
       </ul>
       <p className="mt-3 text-[11px] text-ink-3">
-        Score weights: man vs zone 35% · coverage type (single/two-high, Cover 2/3/4/6) 25% · where he lines up 25% · FP allowed to {p.pos}s 15%. Coverage parts count only as much as we're confident his gap is real.
+        Each reason shows about how much it moves him. The score adds them up: coverage (man vs zone, single vs two-high, Cover 2/3/4/6), where he lines up, and FP per dropback allowed. Coverage counts only as much as we're confident his gap is real.
       </p>
       {pair.flags.length > 0 && (
         <>

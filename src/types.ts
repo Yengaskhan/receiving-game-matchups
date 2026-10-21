@@ -67,6 +67,8 @@ export interface Pair {
   player: string;
   defense: string;
   score: number;
+  /** Expected change in his production vs his normal week (0.05 = +5%). */
+  delta?: number;
   proj: number;
   fp_rr: number;
   ratio: number;
@@ -123,6 +125,8 @@ export interface SlateRow {
   routes: number;
   routes_pg: number;
   score: number;
+  /** Expected change in his production vs his normal week (0.05 = +5%). */
+  delta?: number;
   proj: number;
   fp_rr: number;
   adj_fp_rr: number;

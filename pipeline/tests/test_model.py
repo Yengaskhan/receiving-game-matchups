@@ -121,9 +121,11 @@ def test_te_position_uses_te_fpg_and_defense_index_is_shrunk():
     dp = M.defense_profile(d, {"OUTER_FPG": 22.0, "SLOT_FPG": 16.0, "G": 4}, lg)
     m = M.matchup(p, prof, d, dp, lg)
     assert dp["align"]["TE"]["raw"] == pytest.approx(1.5)
-    assert m["pos_index"] == pytest.approx(1.25)   # 4 games, k = 4 -> halfway to 1.00
+    k = M.MODEL["k_def_games"]
+    shrunk = 1 + 4 / (4 + k) * 0.5                  # 4 games: pulled toward 1.00
+    assert m["pos_index"] == pytest.approx(shrunk)
     # alignment: only his inline routes (5% here) face the TE number
-    assert m["align_index"] == pytest.approx(1 + 0.05 * 0.25)
+    assert m["align_index"] == pytest.approx(1 + 0.05 * (shrunk - 1))
 
 
 def test_sep_score_index_is_a_difference():
@@ -156,28 +158,32 @@ def test_committed_week_scores():
     assert 45 <= sum(r["score"] for r in rows) / len(rows) <= 55
 
 
-def test_score_blend_weights_and_cap():
-    keys = list(M.MODEL["score_weights"])
-    ref = [{k: v for k in keys} for v in (-0.1, 0.0, 0.1)]
-    sc = M.score_scale(ref)
-    # Order of importance: man/zone > coverage type > alignment > position (equal-sized moves).
-    ups = [sc.composite({k: (sc.sd[k] if k == part else 0.0) for k in keys}) for part in keys]
-    assert ups == sorted(ups, reverse=True) and ups[0] > ups[-1] > 0
-    # An outlier is capped at 2 SDs.
-    big = sc.composite({k: (50.0 if k == "position" else 0.0) for k in keys})
-    assert big == pytest.approx(M.MODEL["score_weights"]["position"] * M.MODEL["score_z_cap"])
+def test_score_is_a_fixed_scale_of_the_multiplier():
+    assert M.score_from_ratio(1.0) == 50
+    assert M.score_from_ratio(1.05) == 66
+    assert M.score_from_ratio(1.10) == 79
+    assert M.score_from_ratio(0.98) == 43          # a small effect stays near 50 (not ranked to the bottom)
+    assert 0 <= M.score_from_ratio(0.2) < 2 and 98 < M.score_from_ratio(5.0) <= 100
 
 
-def test_coverage_parts_count_by_confidence():
+def test_score_parts_add_up_to_the_multiplier():
+    import math
+    m = {"fit": 1.04, "align_index": 1.2, "cov_index": 0.9}
+    parts = M.score_parts(m)
+    ratio = (1.04 ** M.MODEL["w_fit"]) * (1.2 ** M.MODEL["w_align_allowed"]) * (0.9 ** M.MODEL["w_cov_allowed"])
+    assert sum(parts.values()) == pytest.approx(math.log(ratio))
+
+
+def test_coverage_fit_counts_by_confidence():
     lg = _league()
     p = _player()
     prof = M.player_profile(p, lg)
     d = dict(lg.defense, G=5, MAN_PCT=40.0, ZONE_PCT=56.0)
     dp = M.defense_profile(d, {"OUTER_FPG": 22.0, "SLOT_FPG": 16.0, "G": 5}, lg)
-    sure = M.matchup(p, prof, d, dp, lg)["parts"]["man_zone"]
-    prof["edges"]["MAN"]["conf"] = 0.2           # same gap, but we're not sure it's real
-    unsure = M.matchup(p, prof, d, dp, lg)["parts"]["man_zone"]
-    assert sure > 0 and unsure == pytest.approx(sure * 0.2 / M.split_edges(p, lg)["MAN"]["conf"])
+    a = M.matchup(p, prof, d, dp, lg)["axes"]["man_zone"]
+    assert a["fit"] == pytest.approx(1 + a["conf"] * (a["fit_raw"] - 1))
+    prof["edges"]["MAN"]["conf"] = 0.0          # not sure at all -> no effect
+    assert M.matchup(p, prof, d, dp, lg)["axes"]["man_zone"]["fit"] == pytest.approx(1.0)
 
 
 @pytest.mark.skipif(not (DATA / "2026" / "index.json").exists(), reason="no outputs yet")

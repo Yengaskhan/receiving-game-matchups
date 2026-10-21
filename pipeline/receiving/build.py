@@ -158,23 +158,13 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         opp[g["home"]] = (g["away"], True, g["game_id"])
     byes = sorted(set(defenses) - set(opp))
 
-    # Matchup Score: blend of standardized coverage fit and FP allowed to his position, as a percentile
-    # among this week's scheduled pairs at his position (players with enough routes).
+    # Matchup Score: the matchup multiplier (expected change vs his normal week) on a fixed 0-100 scale.
     minr = M.MODEL["score_ref_min_routes"]
-    pos_of = {p["id"]: p["POS"] for p in players}
-    scales = {}
-    for pos in POSITIONS:
-        ref_parts = [M.score_parts(pairs[opp[p["TEAM_NFL"]][0]][p["id"]]) for p in players
-                     if p["POS"] == pos and p["TEAM_NFL"] in opp and p["OVERALL_RTE"] >= minr]
-        if len(ref_parts) < 15:
-            raise FormatError(f"only {len(ref_parts)} scheduled {pos}s with {minr}+ routes in week {week}; check the schedule.")
-        scales[pos] = M.score_scale(ref_parts)
     for t, rows in pairs.items():
         for pid, m in rows.items():
-            sc = scales[pos_of[pid]]
             m["parts"] = M.score_parts(m)
-            m["composite"] = sc.composite(m["parts"])
-            m["score"] = round(M.percentile(m["composite"], sc.ref))
+            m["delta"] = m["ratio"] - 1
+            m["score"] = M.score_from_ratio(m["ratio"])
 
     by_id = {p["id"]: p for p in players}
 
@@ -182,12 +172,12 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         m = pairs[t][pid]
         p = by_id[pid]
         return {
-            "player": pid, "defense": t, "score": m["score"], "composite": m["composite"], "parts": m["parts"],
+            "player": pid, "defense": t, "score": m["score"], "delta": m["delta"], "parts": m["parts"],
             "proj": m["proj"], "fp_rr": m["fp_rr"], "ratio": m["ratio"],
             "fit": m["fit"], "base_fit": m["base_fit"], "zone_fit": m["zone_fit"], "cov_yards": m["cov_yards"],
             "axes": {k: {"fit": a["fit"], "def": a["def"], "league": a["league"]} for k, a in m["axes"].items()},
             "cov_index": m["cov_index"], "align_index": m["align_index"], "align_weights": m["align_weights"], "pos_index": m["pos_index"],
-            "reasons": M.reasons(p, profs[pid], m, t, defenses[t], dprofs[t], lg, ranks, scales[p["POS"]]),
+            "reasons": M.reasons(p, profs[pid], m, t, defenses[t], dprofs[t], lg, ranks),
             "flags": M.flags(p, profs[pid], t, defenses[t], lg),
             "coverage_edges": M.coverage_edges(profs[pid], defenses[t], cov_ranks, t, lg),
         }
@@ -255,7 +245,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         po = pair_out(p["id"], o[0])
         rows.append({"player": p["id"], "name": p["NAME"], "team": p["TEAM_NFL"], "pos": p["POS"], "role": p["ROLE"], "opponent": o[0], "home": o[1],
                      "game_id": o[2], "routes": p["OVERALL_RTE"], "routes_pg": rpg_of(p),
-                     "score": po["score"], "proj": po["proj"], "fp_rr": po["fp_rr"], "adj_fp_rr": profs[p["id"]]["adj_overall"],
+                     "score": po["score"], "delta": po["delta"], "proj": po["proj"], "fp_rr": po["fp_rr"], "adj_fp_rr": profs[p["id"]]["adj_overall"],
                      "fit": po["fit"], "cov_index": po["cov_index"], "align_index": po["align_index"], "parts": po["parts"],
                      "reasons": po["reasons"], "flags": po["flags"], "coverage_edges": po["coverage_edges"]})
     rows.sort(key=lambda r: (-r["score"], -r["proj"]))
@@ -286,8 +276,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
     }
     week_out = {
         "schema": SCHEMA_VERSION, "season": season, "week": week, "basis": basis, "data_as_of": as_of, "generated_at": meta["generated_at"],
-        "games": games, "byes": byes, "ref_size": {pos: len(sc.ref) for pos, sc in scales.items()},
-        "score_scale": {pos: {"mean": sc.mean, "sd": sc.sd} for pos, sc in scales.items()}, "rows": rows,
+        "games": games, "byes": byes, "rows": rows,
     }
     return {"meta": meta, "players": players_out, "defenses": defenses_out, "pairs": pair_files, "week": week_out,
             "_debug": {"rows": rows}}

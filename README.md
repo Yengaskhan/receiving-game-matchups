@@ -190,30 +190,21 @@ every defensive index is shrunk:  1 + G / (G + 4) × (index − 1)
 ### Step 5: Projection and score
 
 ```
-matchup FP/RR    = adj_overall_FP_RR × coverage_fit^1.0 × align_allowed^0.5 × cov_allowed^0.25   (cov_allowed = FP per dropback; projection only)
-projection (PPR) = (RTE / G) × matchup FP/RR        ← "matchup-adjusted projection", not a full projection
-
-parts (0 = league-neutral)
-  man_zone       = conf(man vs zone gap) × (E_man/zone(defense mix) − E_man/zone(league mix))      yards/route
-  coverage_type  = conf(single vs two-high gap) × (E_shell(defense) − E_shell(league))
-                   + 0.5 × (zone_fit_conf − 1) × E_league                                          yards/route
-                   zone_fit_conf: Cover 2/3/4/6 win-rate indexes, each pulled toward 1.00 by (1 − its confidence)
-  alignment      = ln(align_allowed)    outside / slot / inline FPG allowed, weighted by his route shares (WR and TE)
-  position       = ln(position_allowed) WR FPG or TE FPG allowed
-z_part           = (part − mean) / SD over the reference set, capped at ±2
-composite        = 0.35 × z_man_zone + 0.25 × z_coverage_type + 0.25 × z_alignment + 0.15 × z_position
-Matchup Score    = percentile of composite among this week's scheduled matchups at his position (WR or TE), 50+ routes
+coverage fit (per axis) = 1 + confidence × (E_axis(defense mix) / E_axis(league mix) − 1)     confidence = "Is it real?" for that gap
+multiplier              = coverage_fit^1.0 × alignment_allowed^0.5 × FP_per_dropback_allowed^0.25
+                          (alignment_allowed: outside / slot / inline FPG allowed, weighted by his route shares;
+                           defensive indexes shrunk toward 1.00 by games: 1 + G/(G + 10) × (index − 1))
+expected change         = multiplier − 1                                   e.g. +5% = 5% more production than his normal week
+projection (PPR)        = (2026 routes / G) × adj_overall_FP_RR × multiplier     ← "matchup-adjusted projection"
+Matchup Score           = 50 + 50 × tanh(ln(multiplier) / 0.145)          fixed scale: 0% → 50, +5% → 66, +10% → 79, +20% → 93, −5% → 34
 ```
 
-- **Order of importance:** man vs zone, then coverage type, then where he lines up, then FP allowed to his position. FP per dropback (WRs and TEs lumped together) is shown in Defense Profiles and used lightly in the projection, but not in the score.
-- **Confidence weighting:** a coverage gap counts only as much as the "Is it real?" confidence (see below). A gap built on a handful of routes barely moves the score; a proven one counts in full.
-- **Standardized:** each part is standardized first, so the weights mean what they say.
-- **The ±2 SD cap** keeps one outlier, like the league's worst pass defense, from outweighing the other parts.
-- **Ranked within position:** a WR's score compares him only with WRs, and a TE's only with TEs. 50 = neutral. The score measures the matchup, not the player.
-- **Percentile method:** the mid-rank percentile, rounded.
-- **Opponents outside the schedule** (picked in the Player vs Defense tab) are scored against the same weekly reference set for his position.
-- **Players under 50 routes** are scored too, but shown with a dashed "small sample" badge.
-- **Score bands** match the RB report's Run Edge: 70+ great, 58+ good, 43–57 neutral, 31–42 tough, 30 or below very tough.
+- **One number, two uses:** the score and the projection come from the same multiplier, so they always agree. The page shows the % next to every score, and each reason shows about how much it moves him.
+- **Fixed scale, not a ranking:** a small effect stays near 50. A player who is a bit worse against the coverage he'll see more of (e.g. −1%) gets about 47, not a bottom-of-the-slate score.
+- **Measured against his own normal week:** his season numbers came against roughly league-average coverage, so "normal" = a league-average defense. The score does not rate how good the player is.
+- **Coverage effects are counted at their real size.** In most weeks a defense's coverage mix moves a player a few percent; extreme defenses (e.g. 46% man) move proven players 5–10%.
+- **Points allowed are trusted gradually** (10 games to count half), because they depend heavily on which offenses a defense has faced.
+- **Not in the score:** FP allowed to the whole position group (overlaps the alignment numbers, which are more specific).
 
 ### "Is it real?" Coverage-edge confidence
 

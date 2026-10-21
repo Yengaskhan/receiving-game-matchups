@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { loadWeek } from './data';
-import { formatDate, n0, n1, n2, n3 } from './format';
+import { formatDate, n0, n1, n2, n3, signed } from './format';
 import type { HashState } from './ReceivingApp';
 import { TeamLogo, teamName } from './TeamLogo';
 import type { SeasonIndex, SlateRow, WeekFile } from './types';
@@ -50,10 +50,10 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
 
   const download = () => {
     if (!week) return;
-    const head = ['Player', 'Pos', 'Role', 'Team', 'Opponent', 'Home', 'Matchup Score', 'Matchup-adjusted projection (PPR)', 'Matchup FP/RR', 'Adj FP/RR', 'Coverage fit', 'Coverage allowed index', 'Alignment allowed index', 'Routes', 'Routes per game', 'Coverage edges', 'Top reason'];
+    const head = ['Player', 'Pos', 'Role', 'Team', 'Opponent', 'Home', 'Matchup Score', 'Expected vs normal (%)', 'Matchup-adjusted projection (PPR)', 'Matchup FP/RR', 'Adj FP/RR', 'Coverage fit', 'Coverage allowed index', 'Alignment allowed index', 'Routes', 'Routes per game', 'Coverage edges', 'Top reason'];
     const esc = (v: string | number) => (typeof v === 'number' || /^-?\d+(\.\d+)?$/.test(v) ? String(v) : `"${v.replace(/"/g, '""')}"`);
     const lines = rows.map((r) =>
-      [r.name, r.pos, r.role ?? '', r.team, r.opponent, r.home ? 'Y' : 'N', r.score, r.proj.toFixed(2), r.fp_rr.toFixed(3), r.adj_fp_rr.toFixed(3), r.fit.toFixed(3), r.cov_index.toFixed(3), r.align_index.toFixed(3), r.routes, r.routes_pg.toFixed(1), r.coverage_edges.map((e) => `${e.edge ? 'EDGE' : 'CONCERN'} ${e.text}`).join(' | '), r.reasons[0]?.text ?? '']
+      [r.name, r.pos, r.role ?? '', r.team, r.opponent, r.home ? 'Y' : 'N', r.score, ((r.delta ?? 0) * 100).toFixed(1), r.proj.toFixed(2), r.fp_rr.toFixed(3), r.adj_fp_rr.toFixed(3), r.fit.toFixed(3), r.cov_index.toFixed(3), r.align_index.toFixed(3), r.routes, r.routes_pg.toFixed(1), r.coverage_edges.map((e) => `${e.edge ? 'EDGE' : 'CONCERN'} ${e.text}`).join(' | '), r.reasons[0]?.text ?? '']
         .map(esc)
         .join(','),
     );
@@ -102,7 +102,7 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
             ))}
             <span className="ml-2">
               {week.games.length} games · {formatDate(week.games[0]?.gameday)} – {formatDate(week.games[week.games.length - 1]?.gameday)}
-              {week.byes.length > 0 && ` · bye: ${week.byes.join(', ')}`} · {rows.length} players shown · click a row for the full matchup · Matchup = this week vs his normal week (50 = typical), ranked within position · coverage edge: ▲ real edge / ▼ real weakness in a coverage the opponent plays at a top-5 rate (#rank · confidence)
+              {week.byes.length > 0 && ` · bye: ${week.byes.join(', ')}`} · {rows.length} players shown · click a row for the full matchup · Matchup = expected change vs his normal week (50 = normal, % below the score) · coverage edge: ▲ real edge / ▼ real weakness in a coverage the opponent plays at a top-5 rate (#rank · confidence)
             </span>
           </div>
           <div className="overflow-x-auto rounded-md border border-line bg-panel">
@@ -156,6 +156,7 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
                     </td>
                     <td className="hidden px-3 py-2 text-center sm:table-cell">
                       <ScoreBadge score={r.score} small={r.routes < 50} />
+                      {r.delta != null && <span className={`num block text-[10.5px] ${r.delta > 0.01 ? 'text-edge-good' : r.delta < -0.01 ? 'text-edge-bad' : 'text-ink-3'}`}>{signed(r.delta * 100, 0, '%')}</span>}
                     </td>
                     <td className="px-3 py-2">
                       {r.coverage_edges.length ? (

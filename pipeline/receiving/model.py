@@ -9,9 +9,9 @@ Steps
      league's mix. Axes are listed in AXES, so a new split (e.g. vs blitz) is one more entry.
   4  Defense strength (defense side): FP allowed given its own coverage mix, and FP allowed to his
      alignments (WR) or to TEs, each as an index vs league, shrunk toward 1.00 by games played.
-  5  Matchup-adjusted FP/RR and projection. The 0-100 Matchup Score blends man vs zone (35%), coverage
-     type (25%), where he lines up (25%) and FP allowed to his position (15%), coverage parts weighted by
-     confidence; each part standardized; ranked within position.
+  5  Matchup multiplier = coverage fit x alignment allowed^0.5 x FP-per-dropback allowed^0.25: the
+     expected change in his production vs his normal week. It drives both the projection and the 0-100
+     Matchup Score (a fixed scale, 50 = his normal week).
 """
 
 from dataclasses import dataclass, field
@@ -25,30 +25,23 @@ MODEL = {
     # Step 3
     "zone_detail_weight": 0.15,     # blend of the Cover 2/3/4/6 win-rate layer into coverage fit
     # Step 4: defensive indexes are shrunk toward 1.00: 1 + G / (G + k) * (index - 1)
-    "k_def_games": 4,
+    # 10: a defense needs about 10 games before its points-allowed numbers count half. Points allowed
+    # over a few games depend heavily on which offenses it faced, so they are trusted slowly.
+    "k_def_games": 10,
     # Step 5: matchup FP/RR = adj overall FP/RR * fit^w1 * coverage allowed^w2 * alignment allowed^w3
     "w_fit": 1.0,
     "w_cov_allowed": 0.25,
     "w_align_allowed": 0.5,
-    # Matchup Score: four parts, in this order of importance, each standardized within the week's
-    # position group and ranked within position (WRs vs WRs, TEs vs TEs).
-    #   man_zone       - his yards/route vs man and vs zone, weighted by this defense's man/zone mix
-    #   coverage_type  - the same for single-high vs two-high, plus his Cover 2/3/4/6 win rates
-    #   alignment      - FP the defense allows where he lines up (outside / slot / inline)
-    #   position       - FP the defense allows to his position (WRs or TEs)
-    # Both coverage parts are multiplied by how confident we are his gap is real ("Is it real?"), so a
-    # gap built on a handful of routes counts for little and a proven one counts in full.
-    "score_weights": {"man_zone": 0.35, "coverage_type": 0.25, "alignment": 0.25, "position": 0.15},
-    # Within coverage_type: weight of the Cover 2/3/4/6 layer next to single-high vs two-high.
-    "zone_type_weight": 0.5,
-    # Each part's standardized value is capped at +/- this many SDs, so one outlier (e.g. the league's
-    # worst pass defense) can't outweigh the others.
-    "score_z_cap": 2.0,
+    # Matchup Score: the expected change in his production vs his normal week, i.e. the same multiplier
+    # the projection uses (coverage fit x alignment allowed^0.5 x FP-per-dropback allowed^0.25), put on a
+    # fixed 0-100 scale: score = 50 + 50 * tanh(ln(multiplier) / score_scale). With 0.145: +5% -> 66,
+    # +10% -> 79, +20% -> 93, -2% -> 43. Not a ranking: a small effect gets a score near 50.
+    "score_scale": 0.145,
     # Reference set: the week's scheduled pairs at his position whose player has at least this many routes
     "score_ref_min_routes": 50,
     # Reasons: at most this many, and only contributors worth at least this much of the score (z units)
     "max_reasons": 3,
-    "reason_min_effect": 0.05,
+    "reason_min_effect": 0.005,   # half a percent of his production
     # Coverage fit compares his yards per route by coverage. YPRR (not FP/RR) because it also counts the
     # routes where the QB doesn't look his way, and it doesn't swing on touchdowns.
     "fit_metric": "YPRR",
@@ -401,9 +394,14 @@ def matchup(p: dict, prof: dict, d: dict, dprof: dict, lg: League) -> dict:
         e_def = axis_expectation(prof, ax, d)
         e_lg = axis_expectation(prof, ax, L)
         # A player with no yards at all has no coverage profile: neutral fit.
-        axes[ax["key"]] = {"def": e_def, "league": e_lg, "fit": e_def / e_lg if e_lg > 0 else 1.0}
+        raw = e_def / e_lg if e_lg > 0 else 1.0
+        # Count his gap only as much as we're confident it's real (e.g. man vs zone): a thin sample can't
+        # turn tiny numbers into a big edge, a proven gap counts in full.
+        e = prof["edges"][ax["sides"][0][0]]
+        conf = e["conf"] if e["z"] is not None else 0.0
+        axes[ax["key"]] = {"def": e_def, "league": e_lg, "fit_raw": raw, "conf": conf, "fit": 1 + conf * (raw - 1)}
     base_fit = sum(a["fit"] for a in axes.values()) / len(axes)
-    zf = zone_fit(prof, dprof, lg)
+    zf = zone_fit(prof, dprof, lg, confidence_weighted=True)
     lam = MODEL["zone_detail_weight"]
     fit = (1 - lam) * base_fit + lam * zf
     # The same fit in yards per route gained (or lost) vs a league-average coverage mix. The score uses
@@ -423,20 +421,6 @@ def matchup(p: dict, prof: dict, d: dict, dprof: dict, lg: League) -> dict:
     align_parts = w
     pos_idx = dprof["align"]["TE" if p["POS"] == "TE" else "WR"]["index"]
 
-    # Score parts. Coverage parts are in yards per route gained vs a league-average mix (so tiny producers
-    # can't post big edges), times confidence that his gap is real.
-    edges = prof["edges"]
-    conf_mz = edges["MAN"]["conf"] if edges["MAN"]["z"] is not None else 0.0
-    conf_sh = edges["SINGLE_HIGH"]["conf"] if edges["SINGLE_HIGH"]["z"] is not None else 0.0
-    zf_conf = zone_fit(prof, dprof, lg, confidence_weighted=True)
-    mz, shl = axes["man_zone"], axes["shell"]
-    parts = {
-        "man_zone": conf_mz * (mz["def"] - mz["league"]),
-        "coverage_type": conf_sh * (shl["def"] - shl["league"]) + MODEL["zone_type_weight"] * (zf_conf - 1) * e_lg,
-        "alignment": log(align_idx),
-        "position": log(pos_idx),
-    }
-
     ratio = (fit ** MODEL["w_fit"]) * (dprof["cov_index"] ** MODEL["w_cov_allowed"]) * (align_idx ** MODEL["w_align_allowed"])
     fp_rr = prof["adj_overall"] * ratio
     # Routes per game: his current-season role (RPG, set for prior / total views), else this data's.
@@ -444,7 +428,7 @@ def matchup(p: dict, prof: dict, d: dict, dprof: dict, lg: League) -> dict:
     return {
         "axes": axes, "base_fit": base_fit, "zone_fit": zf, "fit": fit, "cov_yards": cov_yards, "e_league": e_lg,
         "cov_index": dprof["cov_index"], "align_index": align_idx, "align_weights": align_parts, "pos_index": pos_idx,
-        "parts": parts, "conf_mz": conf_mz, "conf_sh": conf_sh, "zone_fit_conf": zf_conf,
+
         "ratio": ratio, "fp_rr": fp_rr, "routes_pg": rpg, "proj": rpg * fp_rr,
     }
 
@@ -468,102 +452,76 @@ def _rank_phrase(r: int, n: int, most: str = "most", least: str = "fewest") -> s
 
 
 def score_parts(m: dict) -> dict[str, float]:
-    """The parts of the Matchup Score (0 = league-neutral), computed in matchup()."""
-    return m["parts"]
+    """The matchup multiplier split into its parts, in log units (they add up to ln(multiplier))."""
+    return {
+        "coverage": MODEL["w_fit"] * log(m["fit"]),
+        "alignment": MODEL["w_align_allowed"] * log(m["align_index"]),
+        "ppd": MODEL["w_cov_allowed"] * log(m["cov_index"]),
+    }
 
 
-@dataclass
-class ScoreScale:
-    """Mean and spread of each score part over a position's reference set, and the reference composites."""
-    mean: dict[str, float]
-    sd: dict[str, float]
-    ref: list[float]
-
-    def z(self, part: str, value: float) -> float:
-        cap = MODEL["score_z_cap"]
-        return max(-cap, min(cap, (value - self.mean[part]) / self.sd[part]))
-
-    def composite(self, parts: dict[str, float]) -> float:
-        w = MODEL["score_weights"]
-        return sum(w[k] * self.z(k, parts[k]) for k in w)
-
-    def per_log(self, part: str) -> float:
-        """Score units (z) per unit of this part (yards per route for coverage, log for the others)."""
-        return MODEL["score_weights"][part] / self.sd[part]
+def score_from_ratio(ratio: float) -> int:
+    """0-100 on a fixed scale: 50 = his normal week; see MODEL["score_scale"]."""
+    from math import tanh
+    return round(50 + 50 * tanh(log(ratio) / MODEL["score_scale"]))
 
 
-def score_scale(ref_parts: list[dict[str, float]]) -> ScoreScale:
-    keys = list(MODEL["score_weights"])
-    mean = {k: sum(p[k] for p in ref_parts) / len(ref_parts) for k in keys}
-    sd = {k: (sum((p[k] - mean[k]) ** 2 for p in ref_parts) / len(ref_parts)) ** 0.5 or 1.0 for k in keys}
-    sc = ScoreScale(mean=mean, sd=sd, ref=[])
-    sc.ref = sorted(sc.composite(p) for p in ref_parts)
-    return sc
-
-
-def reasons(p: dict, prof: dict, m: dict, team: str, d: dict, dprof: dict, lg: League, ranks: dict, scale: ScoreScale) -> list[dict]:
-    """Plain-English reasons from the biggest contributors to the score (effect in score z units)."""
+def reasons(p: dict, prof: dict, m: dict, team: str, d: dict, dprof: dict, lg: League, ranks: dict, scale=None) -> list[dict]:
+    """Plain-English reasons from the biggest contributors, each with its effect on his production."""
     L = lg.defense
+    lam = MODEL["zone_detail_weight"]
+    nax = len(AXES)
     out = []
     sp = prof["splits"]
     fm = MODEL["fit_metric"]
 
-    def axis_reason(ax: dict, part: str, conf: float, share: float = 1.0):
+    for ax in AXES:
         a = m["axes"][ax["key"]]
-        eff = scale.per_log(part) * share * conf * (a["def"] - a["league"])
+        eff = MODEL["w_fit"] * log(1 + (1 - lam) * (a["fit"] - 1) / nax)
         lean = max(ax["sides"], key=lambda x: d[x[1]] - L[x[1]])
         other = next(x for x in ax["sides"] if x is not lean)
         s_, col, word = lean
         i_lean = sp[s_]["metrics"][fm]["index"]
         i_other = sp[other[0]]["metrics"][fm]["index"]
+        conf = prof["edges"][s_]["conf"]
         better = "better" if i_lean >= i_other else "worse"
-        out.append({"effect": eff, "kind": "coverage" if part == "man_zone" else "shell",
+        out.append({"effect": eff, "kind": "coverage" if ax["key"] == "man_zone" else "shell",
                     "text": (f"{team} plays {word} on {d[col]:.0f}% of dropbacks (league {L[col]:.0f}%); "
-                             f"he's {better} vs {word} ({i_lean:.2f}x league yards/route) than vs {other[2]} ({i_other:.2f}x); "
-                             f"{conf * 100:.0f}% confident it's real.")})
+                             f"he's {better} vs {word} ({i_lean:.2f}x league yards/route) than vs {other[2]} ({i_other:.2f}x), "
+                             f"{conf * 100:.0f}% confident it's real")})
 
-    axis_reason(AXES[0], "man_zone", m["conf_mz"])
-    axis_reason(AXES[1], "coverage_type", m["conf_sh"])
-
-    # Zone types: the cover that moves his (confidence-weighted) zone fit most in the same direction.
-    eff = scale.per_log("coverage_type") * MODEL["zone_type_weight"] * (m["zone_fit_conf"] - 1) * m["e_league"]
+    eff = MODEL["w_fit"] * log(1 + lam * (m["zone_fit"] - 1))
     zmix = dprof["zone_mix"]
-    contrib = {z[0]: (zmix[z[0]] - lg.zone_mix[z[0]]) * prof["edges"][z[0]]["conf"] * ((sp[z[0]]["metrics"]["WIN_RATE"]["index"] or 1.0) - 1)
-               for z in ZONE_COVERS}
+    contrib = {z[0]: (zmix[z[0]] - lg.zone_mix[z[0]]) * ((sp[z[0]]["metrics"]["WIN_RATE"]["index"] or 1.0) - 1) for z in ZONE_COVERS}
     zc = max(ZONE_COVERS, key=lambda z: contrib[z[0]] if eff >= 0 else -contrib[z[0]])
     k_, col, label = zc
     wi = sp[k_]["metrics"]["WIN_RATE"]
     more = "more" if d[col] >= L[col] else "less"
     out.append({"effect": eff, "kind": "zone",
                 "text": (f"{team} plays {label} {more} than most ({d[col]:.0f}% of dropbacks, league {L[col]:.0f}%); "
-                         f"his {label} win rate is {wi['index']:.2f}x league ({prof['edges'][k_]['conf'] * 100:.0f}% confident it's real).")})
+                         f"his {label} win rate is {wi['index']:.2f}x league")})
 
-    # Where he lines up
     w = m["align_weights"]
     key = max(("WIDE", "SLOT", "INLINE"), key=lambda k: w[k] * abs(log(dprof["align"]["TE" if k == "INLINE" else k]["index"])))
     t = dprof["align"]["TE" if key == "INLINE" else key]
     rk = ranks[{"WIDE": "OUTER_FPG", "SLOT": "SLOT_FPG", "INLINE": "TE_FPG"}[key]][team]
     where = {"WIDE": "outside WRs", "SLOT": "slot receivers", "INLINE": "TEs"}[key]
     frm = {"WIDE": "outside", "SLOT": "from the slot", "INLINE": "inline"}[key]
-    out.append({"effect": scale.per_log("alignment") * log(m["align_index"]), "kind": "alignment",
-                "text": f"Allows {t['fpg']:.1f} FPG to {where} ({_rank_phrase(rk, 32)}); he runs {w[key] * 100:.0f}% of routes {frm}."})
+    out.append({"effect": MODEL["w_align_allowed"] * log(m["align_index"]), "kind": "alignment",
+                "text": f"Allows {t['fpg']:.1f} FPG to {where} ({_rank_phrase(rk, 32)}); he runs {w[key] * 100:.0f}% of routes {frm}"})
 
-    # His position
-    pk = "TE" if p["POS"] == "TE" else "WR"
-    t = dprof["align"][pk]
-    rk = ranks[f"{pk}_FPG"][team]
-    out.append({"effect": scale.per_log("position") * log(m["pos_index"]), "kind": "position",
-                "text": f"Allows {t['fpg']:.1f} FPG to {pk}s (league {t['league']:.1f}; {_rank_phrase(rk, 32)})."})
+    r = ranks["cov"][team]
+    mz = dprof["cov_axes"]["man_zone"]
+    out.append({"effect": MODEL["w_cov_allowed"] * log(m["cov_index"]), "kind": "allowed",
+                "text": f"Allows {mz['allowed']:.2f} PPR points per dropback to WRs and TEs ({_rank_phrase(r, 32)}; league {mz['league']:.2f})"})
 
-    cap = MODEL["score_z_cap"]
-    wts = MODEL["score_weights"]
-    part_of = {"coverage": "man_zone", "shell": "coverage_type", "zone": "coverage_type", "alignment": "alignment", "position": "position"}
-    for x in out:
-        lim = cap * wts[part_of[x["kind"]]]
-        x["effect"] = max(-lim, min(lim, x["effect"]))
     out = [x for x in out if abs(x["effect"]) >= MODEL["reason_min_effect"]]
     out.sort(key=lambda x: -abs(x["effect"]))
-    return [{"text": x["text"], "kind": x["kind"], "edge": x["effect"] > 0, "effect": round(x["effect"], 4)} for x in out[: MODEL["max_reasons"]]]
+    res = []
+    for x in out[: MODEL["max_reasons"]]:
+        pct_ = (2.718281828 ** x["effect"] - 1) * 100
+        res.append({"text": f"{x['text']} (about {pct_:+.0f}% for him).", "kind": x["kind"], "edge": x["effect"] > 0, "effect": round(x["effect"], 4)})
+    return res
 
 
 def flags(p: dict, prof: dict, team: str, d: dict, lg: League) -> list[dict]:
