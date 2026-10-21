@@ -97,7 +97,7 @@ export default function ReceivingApp() {
                   {index.season} · Week {index.current_week}
                 </p>
                 <h1 className="text-[22px] font-semibold tracking-tight">Receiving Game Matchup Report</h1>
-                <p className="text-[12px] text-ink-2">Each WR and TE against the opposing defense's coverage mix, and what that defense allows.</p>
+                <p className="text-[12px] text-ink-2">Which WRs and TEs should beat their usual output this week, based on the opposing defense's coverage and what it allows.</p>
               </div>
               {index.bases.length > 1 && (
                 <div className="flex flex-col gap-1">

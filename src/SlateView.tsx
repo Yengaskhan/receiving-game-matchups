@@ -100,7 +100,7 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
             ))}
             <span className="ml-2">
               {week.games.length} games · {formatDate(week.games[0]?.gameday)} – {formatDate(week.games[week.games.length - 1]?.gameday)}
-              {week.byes.length > 0 && ` · bye: ${week.byes.join(', ')}`} · {rows.length} players shown · click a row for the full matchup · scores are ranked within position · coverage edge: ▲ real edge / ▼ real weakness in a coverage the opponent plays at a top-5 rate (#rank · confidence)
+              {week.byes.length > 0 && ` · bye: ${week.byes.join(', ')}`} · {rows.length} players shown · click a row for the full matchup · Matchup = this week vs his normal week (50 = typical), ranked within position · coverage edge: ▲ real edge / ▼ real weakness in a coverage the opponent plays at a top-5 rate (#rank · confidence)
             </span>
           </div>
           <div className="overflow-x-auto rounded-md border border-line bg-panel">

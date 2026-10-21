@@ -175,7 +175,7 @@ function HeaderCards({ p, pair }: { p: Player; pair: Pair }) {
   const top = edge ?? concern;
   return (
     <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
-      <Card label="Matchup Score" sub={`Ranked among ${p.pos}s this week; 50 = neutral${p.routes < 50 ? ' · small sample (under 50 routes)' : ''}`}>
+      <Card label="Matchup Score" sub={`Compared with his normal week: above 50 = should beat his usual output, below = tougher than usual. Ranked among ${p.pos}s this week${p.routes < 50 ? ' · small sample (under 50 routes)' : ''}`}>
         <ScoreBadge score={pair.score} small={p.routes < 50} lg />
       </Card>
       <Card label="Matchup-adjusted projection" sub={`${n1(p.routes_pg)} routes × ${n3(pair.fp_rr)} FP/RR (his adj. ${n3(p.overall.adj_fp_rr)})`}>
