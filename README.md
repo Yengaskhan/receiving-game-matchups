@@ -190,20 +190,24 @@ every defensive index is shrunk:  1 + G / (G + 4) × (index − 1)
 ### Step 5: Projection and score
 
 ```
-matchup FP/RR    = adj_overall_FP_RR × coverage_fit^1.0 × align_allowed^0.5 × cov_allowed^0.25
+matchup FP/RR    = adj_overall_FP_RR × coverage_fit^1.0 × align_allowed^0.5 × cov_allowed^0.25   (cov_allowed = FP per dropback; projection only)
 projection (PPR) = (RTE / G) × matchup FP/RR        ← "matchup-adjusted projection", not a full projection
 
-parts            = coverage:  (coverage_fit − 1) × E_league   (yards per route gained vs a league-average coverage mix)
-                   alignment: ln(align_allowed)      (outside/slot WRs by his route share; TEs: FP allowed to TEs)
-                   ppd:       ln(cov_allowed)        (FP per dropback to WRs and TEs combined, given its coverage mix)
+parts (0 = league-neutral)
+  man_zone       = conf(man vs zone gap) × (E_man/zone(defense mix) − E_man/zone(league mix))      yards/route
+  coverage_type  = conf(single vs two-high gap) × (E_shell(defense) − E_shell(league))
+                   + 0.5 × (zone_fit_conf − 1) × E_league                                          yards/route
+                   zone_fit_conf: Cover 2/3/4/6 win-rate indexes, each pulled toward 1.00 by (1 − its confidence)
+  alignment      = ln(align_allowed)    outside / slot / inline FPG allowed, weighted by his route shares (WR and TE)
+  position       = ln(position_allowed) WR FPG or TE FPG allowed
 z_part           = (part − mean) / SD over the reference set, capped at ±2
-composite        = 0.45 × z_coverage + 0.35 × z_alignment + 0.20 × z_ppd
+composite        = 0.35 × z_man_zone + 0.25 × z_coverage_type + 0.25 × z_alignment + 0.15 × z_position
 Matchup Score    = percentile of composite among this week's scheduled matchups at his position (WR or TE), 50+ routes
 ```
 
-- **Weight order:** coverage matters most, then where he lines up, then points per dropback.
-  - Points per dropback is last because the export lumps WRs and TEs together, so it can't tell them apart.
-  - Each part is standardized first, so the weights mean what they say. On raw multipliers, the defense-side numbers vary about five times more than coverage fit and would drown it out.
+- **Order of importance:** man vs zone, then coverage type, then where he lines up, then FP allowed to his position. FP per dropback (WRs and TEs lumped together) is shown in Defense Profiles and used lightly in the projection, but not in the score.
+- **Confidence weighting:** a coverage gap counts only as much as the "Is it real?" confidence (see below). A gap built on a handful of routes barely moves the score; a proven one counts in full.
+- **Standardized:** each part is standardized first, so the weights mean what they say.
 - **The ±2 SD cap** keeps one outlier, like the league's worst pass defense, from outweighing the other parts.
 - **Ranked within position:** a WR's score compares him only with WRs, and a TE's only with TEs. 50 = neutral. The score measures the matchup, not the player.
 - **Percentile method:** the mid-rank percentile, rounded.

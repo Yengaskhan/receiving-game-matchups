@@ -168,7 +168,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
             "proj": m["proj"], "fp_rr": m["fp_rr"], "ratio": m["ratio"],
             "fit": m["fit"], "base_fit": m["base_fit"], "zone_fit": m["zone_fit"], "cov_yards": m["cov_yards"],
             "axes": {k: {"fit": a["fit"], "def": a["def"], "league": a["league"]} for k, a in m["axes"].items()},
-            "cov_index": m["cov_index"], "align_index": m["align_index"], "align_weights": m["align_weights"],
+            "cov_index": m["cov_index"], "align_index": m["align_index"], "align_weights": m["align_weights"], "pos_index": m["pos_index"],
             "reasons": M.reasons(p, profs[pid], m, t, defenses[t], dprofs[t], lg, ranks, scales[p["POS"]]),
             "flags": M.flags(p, profs[pid], t, defenses[t], lg),
             "coverage_edges": M.coverage_edges(profs[pid], defenses[t], cov_ranks, t, lg),

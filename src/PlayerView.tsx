@@ -193,7 +193,7 @@ function HeaderCards({ p, pair }: { p: Player; pair: Pair }) {
 
 function Reasons({ p, pair }: { p: Player; pair: Pair }) {
   return (
-    <Panel title="Why" note={`coverage fit ${n2(pair.fit)} · ${p.pos === 'TE' ? 'TE' : 'alignment'} allowed ${n2(pair.align_index)} · FP/dropback allowed ${n2(pair.cov_index)}`}>
+    <Panel title="Why" note={`coverage fit ${n2(pair.fit)} · alignment allowed ${n2(pair.align_index)} · ${p.pos} allowed ${n2(pair.pos_index ?? 1)}`}>
       {pair.coverage_edges.length > 0 && (
         <div className="mb-3 space-y-1.5 rounded border border-line bg-panel-2/50 p-2">
           <p className="text-[10.5px] font-medium uppercase tracking-wider text-ink-3">Coverage edge (90%+ confident, coverage this defense plays at a top-5 rate)</p>
@@ -215,7 +215,7 @@ function Reasons({ p, pair }: { p: Player; pair: Pair }) {
         {pair.reasons.length === 0 && <li className="text-ink-3">A neutral matchup: no factor moves it much.</li>}
       </ul>
       <p className="mt-3 text-[11px] text-ink-3">
-        Score weights: coverage fit 45% · points allowed {p.pos === 'TE' ? 'to TEs' : 'where he lines up'} 35% · points per dropback allowed to WRs and TEs 20%.
+        Score weights: man vs zone 35% · coverage type (single/two-high, Cover 2/3/4/6) 25% · where he lines up 25% · FP allowed to {p.pos}s 15%. Coverage parts count only as much as we're confident his gap is real.
       </p>
       {pair.flags.length > 0 && (
         <>

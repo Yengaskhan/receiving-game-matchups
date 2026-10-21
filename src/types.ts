@@ -42,7 +42,7 @@ export interface Player {
   reference: { sep_ms: number | null; ador: number | null; plus1: number | null; plus2: number | null; plus3: number | null; neg: number | null };
 }
 
-export interface Reason { text: string; kind: 'coverage' | 'zone' | 'allowed' | 'alignment'; edge: boolean; effect: number }
+export interface Reason { text: string; kind: 'coverage' | 'shell' | 'zone' | 'allowed' | 'alignment' | 'position'; edge: boolean; effect: number }
 export interface Flag { key: string; text: string }
 
 /** A real (confidence >= 90%) edge or weakness in a coverage this opponent plays at a top-5 rate. */
@@ -76,9 +76,10 @@ export interface Pair {
   axes: Record<string, { fit: number; def: number; league: number }>;
   cov_index: number;
   /** Score parts on a log scale (0 = neutral): coverage fit, FP allowed where he lines up, FP per dropback allowed. */
-  parts: { coverage: number; alignment: number; ppd: number };
+  parts: Record<string, number>;
   align_index: number;
   align_weights: Record<string, number>;
+  pos_index?: number;
   reasons: Reason[];
   flags: Flag[];
   coverage_edges: CoverageEdge[];
@@ -124,7 +125,8 @@ export interface SlateRow {
   fit: number;
   cov_index: number;
   /** Score parts on a log scale (0 = neutral): coverage fit, FP allowed where he lines up, FP per dropback allowed. */
-  parts: { coverage: number; alignment: number; ppd: number };
+  parts: Record<string, number>;
+  pos_index?: number;
   align_index: number;
   reasons: Reason[];
   flags: Flag[];

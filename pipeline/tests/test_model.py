@@ -61,7 +61,7 @@ def _league():
     sep = {s: {"WIN_RATE": 10.0, "SEP_SCORE": 0.03} for s in ["OVERALL", "MAN", "ZONE", "RZ", "C2", "C3", "C4", "C6"]}
     d = {"MAN_PCT": 22.0, "ZONE_PCT": 74.0, "ONE_HI_PCT": 50.0, "TWO_HI_PCT": 50.0, "COVER_2_PCT": 12.0, "COVER_3_PCT": 33.0,
          "COVER_4_PCT": 17.0, "COVER_6_PCT": 12.0, "FP_DB_MAN": 0.5, "FP_DB_ZONE": 0.4, "FP_DB_1HI": 0.42, "FP_DB_2HI": 0.46,
-         "TE_FPG": 14.0, "OUTER_FPG": 22.0, "SLOT_FPG": 16.0}
+         "TE_FPG": 14.0, "WR_FPG": 32.0, "OUTER_FPG": 22.0, "SLOT_FPG": 16.0}
     zone = 12 + 33 + 17 + 12
     return M.League(rate=rate, sep=sep, pos_fp_rr={"WR": 0.36, "TE": 0.3}, defense=d,
                     zone_mix={"C2": 12 / zone, "C3": 33 / zone, "C4": 17 / zone, "C6": 12 / zone})
@@ -113,7 +113,7 @@ def test_cover3_heavy_defense_raises_zone_fit():
     assert M.zone_fit(prof, dp, lg) > 1.0
 
 
-def test_te_uses_te_fpg_and_defense_index_is_shrunk():
+def test_te_position_uses_te_fpg_and_defense_index_is_shrunk():
     lg = _league()
     p = _player("TE")
     prof = M.player_profile(p, lg)
@@ -121,7 +121,9 @@ def test_te_uses_te_fpg_and_defense_index_is_shrunk():
     dp = M.defense_profile(d, {"OUTER_FPG": 22.0, "SLOT_FPG": 16.0, "G": 4}, lg)
     m = M.matchup(p, prof, d, dp, lg)
     assert dp["align"]["TE"]["raw"] == pytest.approx(1.5)
-    assert m["align_index"] == pytest.approx(1.25)   # 4 games, k = 4 -> halfway to 1.00
+    assert m["pos_index"] == pytest.approx(1.25)   # 4 games, k = 4 -> halfway to 1.00
+    # alignment: only his inline routes (5% here) face the TE number
+    assert m["align_index"] == pytest.approx(1 + 0.05 * 0.25)
 
 
 def test_sep_score_index_is_a_difference():
@@ -155,16 +157,27 @@ def test_committed_week_scores():
 
 
 def test_score_blend_weights_and_cap():
-    ref = [{"coverage": c, "alignment": a, "ppd": d} for c, a, d in [(-0.02, -0.1, -0.1), (0.0, 0.0, 0.0), (0.02, 0.1, 0.1)]]
+    keys = list(M.MODEL["score_weights"])
+    ref = [{k: v for k in keys} for v in (-0.1, 0.0, 0.1)]
     sc = M.score_scale(ref)
-    # Coverage weighs most: +1 SD of coverage beats +1 SD of either defense-side part.
-    one_sd = {k: sc.sd[k] for k in sc.sd}
-    cov_up = sc.composite({"coverage": one_sd["coverage"], "alignment": 0.0, "ppd": 0.0})
-    ali_up = sc.composite({"coverage": 0.0, "alignment": one_sd["alignment"], "ppd": 0.0})
-    ppd_up = sc.composite({"coverage": 0.0, "alignment": 0.0, "ppd": one_sd["ppd"]})
-    assert cov_up > ali_up > ppd_up > 0
-    # A huge points-per-dropback outlier is capped at 2 SDs.
-    assert sc.composite({"coverage": 0.0, "alignment": 0.0, "ppd": 50.0}) == pytest.approx(M.MODEL["score_weights"]["ppd"] * M.MODEL["score_z_cap"])
+    # Order of importance: man/zone > coverage type > alignment > position (equal-sized moves).
+    ups = [sc.composite({k: (sc.sd[k] if k == part else 0.0) for k in keys}) for part in keys]
+    assert ups == sorted(ups, reverse=True) and ups[0] > ups[-1] > 0
+    # An outlier is capped at 2 SDs.
+    big = sc.composite({k: (50.0 if k == "position" else 0.0) for k in keys})
+    assert big == pytest.approx(M.MODEL["score_weights"]["position"] * M.MODEL["score_z_cap"])
+
+
+def test_coverage_parts_count_by_confidence():
+    lg = _league()
+    p = _player()
+    prof = M.player_profile(p, lg)
+    d = dict(lg.defense, G=5, MAN_PCT=40.0, ZONE_PCT=56.0)
+    dp = M.defense_profile(d, {"OUTER_FPG": 22.0, "SLOT_FPG": 16.0, "G": 5}, lg)
+    sure = M.matchup(p, prof, d, dp, lg)["parts"]["man_zone"]
+    prof["edges"]["MAN"]["conf"] = 0.2           # same gap, but we're not sure it's real
+    unsure = M.matchup(p, prof, d, dp, lg)["parts"]["man_zone"]
+    assert sure > 0 and unsure == pytest.approx(sure * 0.2 / M.split_edges(p, lg)["MAN"]["conf"])
 
 
 @pytest.mark.skipif(not (DATA / "2026" / "index.json").exists(), reason="no outputs yet")
