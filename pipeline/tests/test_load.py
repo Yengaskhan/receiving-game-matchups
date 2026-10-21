@@ -99,9 +99,14 @@ def test_team_map_covers_all_32():
     assert tm.by_fp["LA"] == "LA" and tm.by_fp["LAC"] == "LAC"
     assert tm.by_fp["ARZ"] == "ARI" and tm.by_fp["HST"] == "HOU"
     assert tm.by_name["Los Angeles Rams"] == "LA"
+    # traded mid-season: current team is the last one listed
+    assert tm.fp("ARZ, HST", "test") == "HOU"
 
 
 def test_committed_exports_load():
     from receiving.load import load_all
     ex = load_all()
-    assert all(e.df.height == (312 if k in config.PLAYER_FILES else 32) for k, e in ex.items())
+    # Player counts change every week; the three player files must agree, and there are always 32 teams.
+    counts = {ex[k].df.height for k in config.PLAYER_FILES}
+    assert len(counts) == 1 and counts.pop() > 100
+    assert all(e.df.height == 32 for k, e in ex.items() if k not in config.PLAYER_FILES)

@@ -18,6 +18,10 @@ class TeamMap:
     names: dict[str, str]    # nflverse code -> full name
 
     def fp(self, code: str, where: str) -> str:
+        # A player traded mid-season is listed with every team in the order he played for them
+        # ("ARZ, HST"): his current team is the last one.
+        if "," in code:
+            code = code.split(",")[-1].strip()
         try:
             return self.by_fp[code]
         except KeyError:
