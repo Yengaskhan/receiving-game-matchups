@@ -25,6 +25,7 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
   }, [index.season, basis, entry.file]);
 
   const pos = hash.pos ?? 'all';
+  const role = hash.role ?? 'all';
   const team = hash.team ?? 'all';
   const minRoutes = hash.min != null ? Number(hash.min) : 50;
   const query = hash.filter ?? '';
@@ -36,7 +37,7 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
     if (!week) return [];
     const q = query.trim().toLowerCase();
     const list = week.rows.filter(
-      (r) => (pos === 'all' || r.pos === pos) && (team === 'all' || r.team === team || r.opponent === team) && r.routes >= minRoutes && (!q || r.name.toLowerCase().includes(q)) && (!edgesOnly || r.coverage_edges.length > 0),
+      (r) => (pos === 'all' || r.pos === pos) && roleMatch(r.role, role) && (team === 'all' || r.team === team || r.opponent === team) && r.routes >= minRoutes && (!q || r.name.toLowerCase().includes(q)) && (!edgesOnly || r.coverage_edges.length > 0),
     );
     const val = (r: SlateRow): number | string => (sort.key === 'name' ? r.name : sort.key === 'opponent' ? r.opponent : r[sort.key]);
     return list.sort((a, b) => {
@@ -45,14 +46,14 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
       const c = typeof va === 'string' ? va.localeCompare(vb as string) : va - (vb as number);
       return sort.desc ? -c : c;
     });
-  }, [week, pos, team, minRoutes, query, edgesOnly, sort]);
+  }, [week, pos, role, team, minRoutes, query, edgesOnly, sort]);
 
   const download = () => {
     if (!week) return;
-    const head = ['Player', 'Pos', 'Team', 'Opponent', 'Home', 'Matchup Score', 'Matchup-adjusted projection (PPR)', 'Matchup FP/RR', 'Adj FP/RR', 'Coverage fit', 'Coverage allowed index', 'Alignment allowed index', 'Routes', 'Routes per game', 'Coverage edges', 'Top reason'];
+    const head = ['Player', 'Pos', 'Role', 'Team', 'Opponent', 'Home', 'Matchup Score', 'Matchup-adjusted projection (PPR)', 'Matchup FP/RR', 'Adj FP/RR', 'Coverage fit', 'Coverage allowed index', 'Alignment allowed index', 'Routes', 'Routes per game', 'Coverage edges', 'Top reason'];
     const esc = (v: string | number) => (typeof v === 'number' || /^-?\d+(\.\d+)?$/.test(v) ? String(v) : `"${v.replace(/"/g, '""')}"`);
     const lines = rows.map((r) =>
-      [r.name, r.pos, r.team, r.opponent, r.home ? 'Y' : 'N', r.score, r.proj.toFixed(2), r.fp_rr.toFixed(3), r.adj_fp_rr.toFixed(3), r.fit.toFixed(3), r.cov_index.toFixed(3), r.align_index.toFixed(3), r.routes, r.routes_pg.toFixed(1), r.coverage_edges.map((e) => `${e.edge ? 'EDGE' : 'CONCERN'} ${e.text}`).join(' | '), r.reasons[0]?.text ?? '']
+      [r.name, r.pos, r.role ?? '', r.team, r.opponent, r.home ? 'Y' : 'N', r.score, r.proj.toFixed(2), r.fp_rr.toFixed(3), r.adj_fp_rr.toFixed(3), r.fit.toFixed(3), r.cov_index.toFixed(3), r.align_index.toFixed(3), r.routes, r.routes_pg.toFixed(1), r.coverage_edges.map((e) => `${e.edge ? 'EDGE' : 'CONCERN'} ${e.text}`).join(' | '), r.reasons[0]?.text ?? '']
         .map(esc)
         .join(','),
     );
@@ -71,6 +72,7 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
       <div className="flex flex-wrap items-end gap-3">
         <Select label="Week" value={String(entry.week)} onChange={(v) => update({ week: v })} options={avail.map((w) => [String(w.week), `Week ${w.week}${w.week === index.current_week ? ' (current)' : ''}`])} />
         <Select label="Position" value={pos} onChange={(v) => update({ pos: v })} options={[['all', 'WR + TE'], ['WR', 'WR'], ['TE', 'TE']]} />
+        <Select label="Role" value={role} onChange={(v) => update({ role: v === 'all' ? undefined : v })} options={ROLE_OPTIONS} />
         <Select label="Team" value={team} onChange={(v) => update({ team: v })} options={[['all', 'All teams'], ...teams.map((t) => [t, t] as [string, string])]} />
         <label className="flex flex-col gap-1 text-[10.5px] font-medium uppercase tracking-wider text-ink-3">
           Min routes
@@ -134,7 +136,7 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
                           <span>
                             <span className="block whitespace-nowrap font-semibold">{r.name}</span>
                             <span className="block text-[11px] text-ink-3">
-                              {r.pos} · {r.team}
+                              {r.role ?? r.pos} · {r.team}
                               <span className="sm:hidden">
                                 {' '}
                                 {r.home ? 'vs' : '@'} {r.opponent}
@@ -191,4 +193,29 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
       )}
     </div>
   );
+}
+
+/** Role filter: within-team rank by targets per game this season. */
+const ROLE_OPTIONS: [string, string][] = [
+  ['all', 'All roles'],
+  ['WR1', 'WR1'],
+  ['WR2', 'WR2'],
+  ['WR3', 'WR3'],
+  ['WR1-2', 'WR1 + WR2'],
+  ['WR1-3', 'WR1 – WR3'],
+  ['WR4+', 'WR4 and below'],
+  ['TE1', 'TE1'],
+  ['TE2+', 'TE2 and below'],
+];
+
+function roleMatch(role: string | null | undefined, filter: string): boolean {
+  if (filter === 'all') return true;
+  if (!role) return false;
+  const pos = role.slice(0, 2);
+  const n = Number(role.slice(2));
+  const m = filter.match(/^(WR|TE)(\d)(?:-(\d)|(\+))?$/);
+  if (!m || m[1] !== pos) return false;
+  const lo = Number(m[2]);
+  if (m[4]) return n >= lo;
+  return n >= lo && n <= Number(m[3] ?? m[2]);
 }

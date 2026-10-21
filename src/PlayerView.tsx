@@ -69,7 +69,7 @@ export function PlayerView({ core, season, basis, week, hash, update }: { core: 
         <TeamLogo team={player.team} size={32} />
         <h2 className="text-[18px] font-semibold">{player.name}</h2>
         <span className="text-[13px] text-ink-2">
-          {player.pos} · {player.team} · {n0(player.routes)} routes in {n0(player.g)} games ({n1(player.routes_pg)} per game)
+          {player.role ?? player.pos} · {player.team} · {n0(player.routes)} routes in {n0(player.g)} games ({n1(player.routes_pg)} per game)
         </span>
         <span className="text-ink-3">vs</span>
         <span className="inline-flex items-center gap-1.5 text-[14px] font-semibold" title={d.name}>
@@ -158,7 +158,7 @@ function PlayerPicker({ players, value, onChange }: { players: Player[]; value: 
                 <TeamLogo team={p.team} size={18} />
                 <span className="flex-1 truncate">{p.name}</span>
                 <span className="text-[11px] text-ink-3">
-                  {p.team} {p.pos} · {n0(p.routes)} rte
+                  {p.team} {p.role ?? p.pos} · {n0(p.routes)} rte
                 </span>
               </button>
             </li>

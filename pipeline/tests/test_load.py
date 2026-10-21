@@ -110,3 +110,17 @@ def test_committed_exports_load():
     counts = {ex[k].df.height for k in config.PLAYER_FILES}
     assert len(counts) == 1 and counts.pop() > 100
     assert all(e.df.height == 32 for k, e in ex.items() if k not in config.PLAYER_FILES)
+
+
+def test_team_roles_by_targets_per_game():
+    import polars as pl
+    from receiving.build import team_roles
+    sep = pl.DataFrame({
+        "NAME": ["A", "B", "C", "D", "T"], "TEAM": ["GB", "GB", "GB", "ARZ, HST", "GB"], "POS": ["WR", "WR", "WR", "WR", "TE"],
+        "G": [6.0, 6.0, 1.0, 5.0, 6.0], "OVERALL_TGT": [30.0, 48.0, 12.0, 40.0, 20.0],
+    })
+    r = team_roles(sep)
+    assert r[("B", "GB", "WR")] == "WR1" and r[("A", "GB", "WR")] == "WR2"
+    assert r[("C", "GB", "WR")] == "WR3"            # 12 targets in 1 game ranks after the regulars
+    assert r[("D", "ARZ, HST", "WR")] == "WR1"      # traded: ranked on his current team (HST)
+    assert r[("T", "GB", "TE")] == "TE1"

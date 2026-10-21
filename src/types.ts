@@ -27,6 +27,8 @@ export interface Player {
   team: string;
   fp_team: string;
   pos: Pos;
+  /** WR1, WR2, ... / TE1, TE2, ... within his team, by targets per game this season. */
+  role?: string | null;
   g: number;
   routes: number;
   routes_pg: number;
@@ -113,6 +115,8 @@ export interface SlateRow {
   name: string;
   team: string;
   pos: Pos;
+  /** WR1, WR2, ... / TE1, TE2, ... within his team, by targets per game this season. */
+  role?: string | null;
   opponent: string;
   home: boolean;
   game_id: string;

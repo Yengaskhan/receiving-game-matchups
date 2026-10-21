@@ -24,6 +24,22 @@ from .load import Export, FormatError
 from .teams import TeamMap
 
 
+def team_roles(sep: pl.DataFrame, min_games: int = 2) -> dict[tuple, str]:
+    """WR1, WR2, ... and TE1, TE2, ... within each team, by targets per game this season. Players with
+    fewer than `min_games` games rank after everyone else, so one big game can't make a WR1."""
+    rows = sep.select("NAME", "TEAM", "POS", "G", "OVERALL_TGT").to_dicts()
+    out = {}
+    groups: dict[tuple, list[dict]] = {}
+    for r in rows:
+        team = r["TEAM"].split(",")[-1].strip()  # traded mid-season: current team
+        groups.setdefault((team, r["POS"]), []).append(r)
+    for (_team, pos), rs in groups.items():
+        rs.sort(key=lambda r: ((r["G"] or 0) < min_games, -((r["OVERALL_TGT"] or 0) / r["G"] if r["G"] else 0), -(r["OVERALL_TGT"] or 0)))
+        for i, r in enumerate(rs, start=1):
+            out[(r["NAME"], r["TEAM"], r["POS"])] = f"{pos}{i}"
+    return out
+
+
 def rpg_of(p: dict) -> float:
     """Routes per game in his current role (the current season), else from this view's data."""
     if p.get("RPG") is not None:
@@ -97,7 +113,8 @@ def check_inputs(ex: dict[str, Export], joined: pl.DataFrame, reports: list[Join
 # ------------------------------------------------------------------------------------------------
 
 def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport], tm: TeamMap,
-          season: int, week: int, games: list[dict], basis: str, current_rpg: dict[tuple, float] | None = None) -> dict:
+          season: int, week: int, games: list[dict], basis: str, current_rpg: dict[tuple, float] | None = None,
+          roles: dict[tuple, str] | None = None) -> dict:
     checks = check_inputs(ex, joined, reports)
 
     players = [dict(p, TEAM_NFL=tm.fp(p["TEAM"], "receiving-situation.csv")) for p in joined.to_dicts()]
@@ -105,6 +122,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         p["id"] = slug(p["NAME"], p["TEAM_NFL"])
         if current_rpg is not None:
             p["RPG"] = current_rpg.get((p["NAME"], p["TEAM"], p["POS"]))
+        p["ROLE"] = (roles or {}).get((p["NAME"], p["TEAM"], p["POS"]))
     ids = [p["id"] for p in players]
     if len(set(ids)) != len(ids):
         raise FormatError("two players share a name and team; can't give them distinct ids.")
@@ -184,7 +202,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         pr = profs[p["id"]]
         o = opp.get(p["TEAM_NFL"])
         players_out.append({
-            "id": p["id"], "name": p["NAME"], "team": p["TEAM_NFL"], "fp_team": p["TEAM"], "pos": p["POS"], "g": p["G"],
+            "id": p["id"], "name": p["NAME"], "team": p["TEAM_NFL"], "fp_team": p["TEAM"], "pos": p["POS"], "role": p["ROLE"], "g": p["G"],
             "routes": p["OVERALL_RTE"], "routes_pg": rpg_of(p),
             "opponent": o[0] if o else None, "home": o[1] if o else None,
             "overall": {"fp_rr": p["OVERALL_FP_RR"], "adj_fp_rr": pr["adj_overall"], "pos_avg": pr["pos_avg"], "yprr": p["OVERALL_YPRR"],
@@ -235,7 +253,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         if not o:
             continue
         po = pair_out(p["id"], o[0])
-        rows.append({"player": p["id"], "name": p["NAME"], "team": p["TEAM_NFL"], "pos": p["POS"], "opponent": o[0], "home": o[1],
+        rows.append({"player": p["id"], "name": p["NAME"], "team": p["TEAM_NFL"], "pos": p["POS"], "role": p["ROLE"], "opponent": o[0], "home": o[1],
                      "game_id": o[2], "routes": p["OVERALL_RTE"], "routes_pg": rpg_of(p),
                      "score": po["score"], "proj": po["proj"], "fp_rr": po["fp_rr"], "adj_fp_rr": profs[p["id"]]["adj_overall"],
                      "fit": po["fit"], "cov_index": po["cov_index"], "align_index": po["align_index"], "parts": po["parts"],

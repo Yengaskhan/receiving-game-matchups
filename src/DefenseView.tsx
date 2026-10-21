@@ -100,7 +100,7 @@ function MatchupList({ title, rows, update, empty }: { title: string; rows: Slat
               <ScoreBadge score={r.score} />
               <button type="button" onClick={() => update({ tab: 'player', player: r.player, opp: r.opponent })} className="min-w-0 text-left hover:text-accent">
                 <span className="block font-semibold">
-                  {r.name} <span className="font-normal text-ink-3">{r.pos} · {r.team} · {n1(r.proj)} proj</span>
+                  {r.name} <span className="font-normal text-ink-3">{r.role ?? r.pos} · {r.team} · {n1(r.proj)} proj</span>
                 </span>
                 <span className="block text-[11.5px] text-ink-2">{(r.reasons.find((x) => x.kind !== 'allowed') ?? r.reasons[0])?.text}</span>
               </button>

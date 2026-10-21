@@ -18,7 +18,7 @@ import polars as pl
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from receiving.build import build, write, write_index  # noqa: E402
+from receiving.build import build, team_roles, write, write_index  # noqa: E402
 from receiving.seasons import combine_exports, rekey_to_current  # noqa: E402
 from receiving.config import COVERAGE_AGREE_TOL, FILES, OUTPUT_DIR, PLAYER_FILES, POSITIONS, PRIOR_SEASONS, RAW_DIR, SEASON  # noqa: E402
 from receiving.join import join_player_files  # noqa: E402
@@ -133,7 +133,7 @@ def schedule_week(season: int, week: int | None) -> tuple[int, list[dict]]:
     return week, games
 
 
-def load_views(tm) -> tuple[dict[str, dict], list[dict], dict[tuple, float]]:
+def load_views(tm) -> tuple[dict[str, dict], list[dict], dict[tuple, float], dict[tuple, str]]:
     """The exports behind each view: the current season, each prior season (players re-keyed to their
     current team) and, when there are prior seasons, all seasons combined."""
     from dataclasses import replace
@@ -161,12 +161,12 @@ def load_views(tm) -> tuple[dict[str, dict], list[dict], dict[tuple, float]]:
         labels.append({"key": "total", "label": f"{first}–{SEASON}", "note": f"{first} through {SEASON} combined"})
     s = cur["situation"].df
     rpg = {(r["NAME"], r["TEAM"], r["POS"]): (r["OVERALL_RTE"] / r["G"] if r["G"] else 0.0) for r in s.iter_rows(named=True)}
-    return views, labels, rpg
+    return views, labels, rpg, team_roles(cur["separation"].df)
 
 
 def run(week_arg: int | None, out: Path) -> int:
     tm = load_team_map()
-    views, labels, rpg = load_views(tm)
+    views, labels, rpg, roles = load_views(tm)
     week, games = schedule_week(SEASON, week_arg)
     for g in games:
         for t in (g["away"], g["home"]):
@@ -180,7 +180,7 @@ def run(week_arg: int | None, out: Path) -> int:
         for r in reports:
             if r.unmatched_base or r.unmatched_other:
                 print(f"{FILES[r.file]['file']}: {len(r.unmatched_base)} situation rows and {len(r.unmatched_other)} {r.file} rows unmatched")
-        res = build(ex, joined, reports, tm, SEASON, week, games, basis, None if basis == str(SEASON) else rpg)
+        res = build(ex, joined, reports, tm, SEASON, week, games, basis, None if basis == str(SEASON) else rpg, roles)
         for c in res["meta"]["checks"]:
             print(f"  ok  {c}")
         report_week(res, week)
