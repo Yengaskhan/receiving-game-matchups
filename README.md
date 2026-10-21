@@ -31,7 +31,7 @@ That's it. The **Rebuild on upload** action (`.github/workflows/rebuild-on-uploa
 - runs `npm run build`, the same check Netlify runs
 - commits the new `data/<season>/` files
 
-Netlify redeploys within a couple of minutes. Earlier weeks' slate files stay on disk, so the Week selector keeps them.
+Netlify redeploys within a couple of minutes, once: it skips the build for the CSV upload itself (`ignore` in `netlify.toml`) and deploys the Action's data commit. Netlify's free plan charges credits per deploy, so each weekly update costs one deploy. Earlier weeks' slate files stay on disk, so the Week selector keeps them.
 
 - **If a run fails** (an export changed format, a team doesn't map, a check fails), GitHub emails you. The failed step's log says which file and which column. Nothing is committed and the live site keeps the last good data.
 - **Build a specific week:** GitHub → **Actions** → **Rebuild on upload** → **Run workflow**, then enter the week.

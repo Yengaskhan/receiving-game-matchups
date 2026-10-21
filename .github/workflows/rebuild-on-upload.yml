@@ -12,10 +12,11 @@ name: Rebuild on upload
 on:
   push:
     branches: [main]
+    # Only new exports trigger a rebuild. Code changes are pushed with their data already rebuilt, so
+    # running here too would only make a second commit (and a second Netlify deploy).
     paths:
       - "data/raw/**"
       - "data/team_map.csv"
-      - "pipeline/**"
   workflow_dispatch:
     inputs:
       week:

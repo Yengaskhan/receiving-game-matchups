@@ -4,6 +4,10 @@
 [build]
   command = "npm run build"
   publish = "dist"
+  # Netlify charges credits per deploy. Skip the build (exit 0) when nothing the site uses changed,
+  # e.g. a README edit, pipeline code or tests, or the raw CSV upload itself (the GitHub Action's data
+  # commit right after it is what gets deployed).
+  ignore = "git diff --quiet $CACHED_COMMIT_REF $COMMIT_REF -- src index.html package.json package-lock.json vite.config.ts tsconfig.json netlify.toml tests data ':!data/raw'"
 
 [build.environment]
   NODE_VERSION = "22"
