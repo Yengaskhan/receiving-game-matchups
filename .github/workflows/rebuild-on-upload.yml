@@ -68,6 +68,9 @@ jobs:
       - name: Commit new data
         # Commits made with the workflow's token don't trigger workflows, so this can't loop.
         run: |
+          # Files that differ only in their generated_at timestamp are left as committed, so a rebuild of
+          # data that was already pushed with its exports makes no commit and no second Netlify deploy.
+          python pipeline/drop_timestamp_only_changes.py
           git add data
           if git diff --cached --quiet; then
             echo "No changes."
