@@ -416,7 +416,8 @@ def matchup(p: dict, prof: dict, d: dict, dprof: dict, lg: League) -> dict:
     w = {k: sh[k] for k in aparts}
     if sum(w.values()) <= 0:
         w = {"WIDE": 0.0, "SLOT": 0.0, "INLINE": 1.0, "BACK": 0.0} if p["POS"] == "TE" else {"WIDE": 1.0, "SLOT": 0.0, "INLINE": 0.0, "BACK": 0.0}
-    w = normalize(w)
+    # Rounded so the same data gives the same text on any machine (no float noise at a .5 boundary).
+    w = {k: round(v, 6) for k, v in normalize(w).items()}
     align_idx = sum(w[k] * aparts[k] for k in aparts)
     align_parts = w
     pos_idx = dprof["align"]["TE" if p["POS"] == "TE" else "WR"]["index"]
