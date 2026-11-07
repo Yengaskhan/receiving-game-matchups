@@ -23,7 +23,13 @@ MODEL = {
     "k_overall_fp_rr": 80,          # overall FP/RR toward the WR or TE average
     "low_sample_routes": 20,        # a split under this many routes is flagged in the page
     # Step 3
-    "zone_detail_weight": 0.15,     # blend of the Cover 2/3/4/6 win-rate layer into coverage fit
+    # Coverage-type layer (Cover 0/1/2/2 Man/3/4/6) blended into coverage fit next to man/zone and shell.
+    # It leads with last season's yards/route by coverage type (nflverse), with this season's Cover 2/3/4/6
+    # win rates as support; without nflverse data for a player it is win rate alone.
+    "zone_detail_weight": 0.30,
+    "type_yprr_share": 0.75,        # within that layer: yards/route (2025) vs win rate (this season)
+    "mz_yprr_share": 0.75,          # man vs zone: yards/route vs win rate
+    "k_type_routes": 60,            # shrinkage for yards/route by coverage type
     # Step 4: defensive indexes are shrunk toward 1.00: 1 + G / (G + k) * (index - 1)
     # 10: a defense needs about 10 games before its points-allowed numbers count half. Points allowed
     # over a few games depend heavily on which offenses it faced, so they are trusted slowly.
@@ -135,11 +141,14 @@ def ordinal(n: int) -> str:
 
 @dataclass
 class League:
+    """League rates. ct / ct_all: route-weighted yards/route by coverage type (nflverse, prior season)."""
     rate: dict[str, dict[str, float]]      # split -> metric -> route-weighted league rate (situation; "OVERALL" too)
     sep: dict[str, dict[str, float]]       # split -> metric -> route-weighted league rate (separation; "OVERALL" too)
     pos_fp_rr: dict[str, float]            # WR / TE overall FP/RR, route-weighted
     defense: dict[str, float] = field(default_factory=dict)  # dropback- or game-weighted defense rates
     zone_mix: dict[str, float] = field(default_factory=dict)  # league Cover 2/3/4/6 share of zone
+    ct: dict[str, float] = field(default_factory=dict)
+    ct_all: float = 0.0
 
 
 def league_baselines(players: list[dict], defenses: list[dict], allowed: list[dict]) -> League:
@@ -220,7 +229,58 @@ def player_profile(p: dict, lg: League) -> dict:
 
     prof_edges = split_edges(p, lg)
     shares = normalize({a: p[f"{a}_ROUTE_SHARE"] for a, _ in ALIGNMENTS}) if any(p[f"{a}_ROUTE_SHARE"] for a, _ in ALIGNMENTS) else {"WIDE": 0.0, "SLOT": 0.0, "INLINE": 0.0, "BACK": 0.0}
-    return {"adj_overall": adj_overall, "pos_avg": pos_avg, "splits": splits, "align_shares": shares, "edges": prof_edges}
+    ctypes, ct_edges = ctype_profile(p, lg)
+    return {"adj_overall": adj_overall, "pos_avg": pos_avg, "splits": splits, "align_shares": shares, "edges": prof_edges,
+            "ctypes": ctypes, "ct_edges": ct_edges}
+
+
+CT_TYPES = [("C0", "COVER_0_PCT", "Cover 0"), ("C1", "COVER_1_PCT", "Cover 1"), ("C2M", "COVER_2_MAN_PCT", "Cover 2 Man"),
+            ("C2", "COVER_2_PCT", "Cover 2"), ("C3", "COVER_3_PCT", "Cover 3"), ("C4", "COVER_4_PCT", "Cover 4"),
+            ("C6", "COVER_6_PCT", "Cover 6")]
+
+
+def ctype_profile(p: dict, lg: League) -> tuple[dict, dict]:
+    """His yards/route by coverage type last season (nflverse, p["CT"] = {type: (routes, targets, yards)}):
+    shrunk toward his own rate scaled by the league's rate in that type, an index vs league, and how
+    confident we are that his rate in each type differs from his rate in the others."""
+    ct = p.get("CT")
+    if not ct or not lg.ct:
+        return {}, {}
+    rte = sum(v[0] for v in ct.values())
+    tgt = sum(v[1] for v in ct.values())
+    yds = sum(v[2] for v in ct.values())
+    if rte <= 0:
+        return {}, {}
+    own = yds / rte
+    var = yprr_route_var(tgt / rte, own) if own > 0 else None
+    out, edges = {}, {}
+    for k, _col, label in CT_TYPES:
+        n, _t, y = ct.get(k, (0.0, 0, 0.0))
+        lk = lg.ct[k]
+        raw = y / n if n else None
+        adj = shrink(raw, n, own * lk / lg.ct_all, MODEL["k_type_routes"])
+        out[k] = {"label": label, "routes": n, "raw": raw, "adj": adj, "league": lk, "index": adj / lk}
+        n2, y2 = rte - n, yds - y
+        l2 = sum(lg.ct[o] * ct.get(o, (0.0,))[0] for o, _, _ in CT_TYPES if o != k) / n2 if n2 > 0 else None
+        z = index_gap_z(y / n, n, lk, y2 / n2, n2, l2, var, var) if (var and n > 0 and n2 > 0 and l2) else None
+        edges[k] = {"metric": "YPRR_2025", "vs": "his other coverage types", "vs_key": "ALL",
+                    "idx": (y / n) / lk if n else None, "vs_idx": (y2 / n2) / l2 if (n2 > 0 and l2) else None,
+                    "routes": n, "vs_routes": n2, "z": z, "conf": confidence(z) if z is not None else 0.0}
+    return out, edges
+
+
+def ctype_fit(prof: dict, d: dict, L: dict) -> float | None:
+    """His (confidence-weighted) yards/route index by coverage type, weighted by this defense's mix of
+    Cover 0/1/2/2 Man/3/4/6, vs weighted by the league's mix. None without coverage-type data."""
+    ct = prof.get("ctypes")
+    if not ct:
+        return None
+    dn = normalize({k: d[col] for k, col, _ in CT_TYPES})
+    ln = normalize({k: L[col] for k, col, _ in CT_TYPES})
+    base = sum(ln[k] * ct[k]["index"] for k in ln)
+    idx = {k: base + prof["ct_edges"][k]["conf"] * (ct[k]["index"] - base) for k in ln}
+    den = sum(ln[k] * idx[k] for k in ln)
+    return sum(dn[k] * idx[k] for k in dn) / den if den > 0 else None
 
 
 # ------------------------------------------------------------------------------------------------
@@ -301,12 +361,12 @@ def coverage_edges(prof: dict, d: dict, cov_ranks: dict[str, dict[str, int]], te
     L = lg.defense
     out = []
     for key, col, label in USAGE_COLS:
-        e = prof["edges"].get(key)
+        e = prof.get("ct_edges", {}).get(key) or prof["edges"].get(key)
         r = cov_ranks[col][team]
         if not e or e["z"] is None or r > MODEL["edge_usage_rank"] or e["conf"] < MODEL["edge_conf"]:
             continue
         good = e["z"] > 0
-        metric = "yards/route" if e["metric"] == "YPRR" else "win rate"
+        metric = {"YPRR": "yards/route", "YPRR_2025": "yards/route last season"}.get(e["metric"], "win rate")
         rank_txt = "most in the NFL" if r == 1 else f"{ordinal(r)} most"
         out.append({
             "cov": key, "label": label, "edge": good, "conf": e["conf"], "rank": r, "pct": d[col], "league": L[col],
@@ -319,7 +379,8 @@ def coverage_edges(prof: dict, d: dict, cov_ranks: dict[str, dict[str, int]], te
 
 USAGE_COLS = [("MAN", "MAN_PCT", "Man"), ("ZONE", "ZONE_PCT", "Zone"), ("SINGLE_HIGH", "ONE_HI_PCT", "Single-high"),
               ("TWO_HIGH", "TWO_HI_PCT", "Two-high"), ("C2", "COVER_2_PCT", "Cover 2"), ("C3", "COVER_3_PCT", "Cover 3"),
-              ("C4", "COVER_4_PCT", "Cover 4"), ("C6", "COVER_6_PCT", "Cover 6")]
+              ("C4", "COVER_4_PCT", "Cover 4"), ("C6", "COVER_6_PCT", "Cover 6"), ("C0", "COVER_0_PCT", "Cover 0"),
+              ("C1", "COVER_1_PCT", "Cover 1"), ("C2M", "COVER_2_MAN_PCT", "Cover 2 Man")]
 
 
 def usage_ranks(defenses: dict[str, dict]) -> dict[str, dict[str, int]]:
@@ -397,13 +458,25 @@ def matchup(p: dict, prof: dict, d: dict, dprof: dict, lg: League) -> dict:
         raw = e_def / e_lg if e_lg > 0 else 1.0
         # Count his gap only as much as we're confident it's real (e.g. man vs zone): a thin sample can't
         # turn tiny numbers into a big edge, a proven gap counts in full.
+        if ax["key"] == "man_zone":
+            # Man vs zone leads with yards/route; win rate (this season) is the supporting signal.
+            sp = prof["splits"]
+            wd = normalize({x: d[c] for x, c, _ in ax["sides"]})
+            wl = normalize({x: L[c] for x, c, _ in ax["sides"]})
+            w_def = sum(wd[x] * sp[x]["metrics"]["WIN_RATE"]["adj"] for x in wd)
+            w_lg = sum(wl[x] * sp[x]["metrics"]["WIN_RATE"]["adj"] for x in wl)
+            raw_w = w_def / w_lg if w_lg > 0 else 1.0
+            sh = MODEL["mz_yprr_share"]
+            raw = sh * raw + (1 - sh) * raw_w
         e = prof["edges"][ax["sides"][0][0]]
         conf = e["conf"] if e["z"] is not None else 0.0
         axes[ax["key"]] = {"def": e_def, "league": e_lg, "fit_raw": raw, "conf": conf, "fit": 1 + conf * (raw - 1)}
     base_fit = sum(a["fit"] for a in axes.values()) / len(axes)
     zf = zone_fit(prof, dprof, lg, confidence_weighted=True)
+    ctf = ctype_fit(prof, d, L)
+    type_fit = zf if ctf is None else MODEL["type_yprr_share"] * ctf + (1 - MODEL["type_yprr_share"]) * zf
     lam = MODEL["zone_detail_weight"]
-    fit = (1 - lam) * base_fit + lam * zf
+    fit = (1 - lam) * base_fit + lam * type_fit
     # The same fit in yards per route gained (or lost) vs a league-average coverage mix. The score uses
     # this, so a receiver who barely produces can't post a big "edge" from tiny numbers.
     e_lg = sum(a["league"] for a in axes.values()) / len(axes)
@@ -427,7 +500,7 @@ def matchup(p: dict, prof: dict, d: dict, dprof: dict, lg: League) -> dict:
     # Routes per game: his current-season role (RPG, set for prior / total views), else this data's.
     rpg = p.get("RPG") if p.get("RPG") is not None else (p["OVERALL_RTE"] / p["G"] if p["G"] else 0.0)
     return {
-        "axes": axes, "base_fit": base_fit, "zone_fit": zf, "fit": fit, "cov_yards": cov_yards, "e_league": e_lg,
+        "axes": axes, "base_fit": base_fit, "zone_fit": zf, "ct_fit": ctf, "type_fit": type_fit, "fit": fit, "cov_yards": cov_yards, "e_league": e_lg,
         "cov_index": dprof["cov_index"], "align_index": align_idx, "align_weights": align_parts, "pos_index": pos_idx,
 
         "ratio": ratio, "fp_rr": fp_rr, "routes_pg": rpg, "proj": rpg * fp_rr,
@@ -491,16 +564,29 @@ def reasons(p: dict, prof: dict, m: dict, team: str, d: dict, dprof: dict, lg: L
                              f"he's {better} vs {word} ({i_lean:.2f}x league yards/route) than vs {other[2]} ({i_other:.2f}x), "
                              f"{conf * 100:.0f}% confident it's real")})
 
-    eff = MODEL["w_fit"] * log(1 + lam * (m["zone_fit"] - 1))
-    zmix = dprof["zone_mix"]
-    contrib = {z[0]: (zmix[z[0]] - lg.zone_mix[z[0]]) * ((sp[z[0]]["metrics"]["WIN_RATE"]["index"] or 1.0) - 1) for z in ZONE_COVERS}
-    zc = max(ZONE_COVERS, key=lambda z: contrib[z[0]] if eff >= 0 else -contrib[z[0]])
-    k_, col, label = zc
-    wi = sp[k_]["metrics"]["WIN_RATE"]
-    more = "more" if d[col] >= L[col] else "less"
-    out.append({"effect": eff, "kind": "zone",
-                "text": (f"{team} plays {label} {more} than most ({d[col]:.0f}% of dropbacks, league {L[col]:.0f}%); "
-                         f"his {label} win rate is {wi['index']:.2f}x league")})
+    eff = MODEL["w_fit"] * log(1 + lam * (m["type_fit"] - 1))
+    if m.get("ct_fit") is not None:
+        # Coverage types (last season's yards/route): the type that moves him most in the same direction.
+        ct, ce = prof["ctypes"], prof["ct_edges"]
+        dn = normalize({k: d[col] for k, col, _ in CT_TYPES})
+        ln = normalize({k: L[col] for k, col, _ in CT_TYPES})
+        base = sum(ln[k] * ct[k]["index"] for k in ln)
+        contrib = {k: (dn[k] - ln[k]) * ce[k]["conf"] * (ct[k]["index"] - base) for k in dn}
+        k_, col, label = max(CT_TYPES, key=lambda z: contrib[z[0]] if eff >= 0 else -contrib[z[0]])
+        more = "more" if d[col] >= L[col] else "less"
+        out.append({"effect": eff, "kind": "zone",
+                    "text": (f"{team} plays {label} {more} than most ({d[col]:.0f}% of dropbacks, league {L[col]:.0f}%); "
+                             f"his {label} yards/route last season was {ct[k_]['index']:.2f}x league ({ce[k_]['conf'] * 100:.0f}% confident it's real)")})
+    else:
+        zmix = dprof["zone_mix"]
+        contrib = {z[0]: (zmix[z[0]] - lg.zone_mix[z[0]]) * ((sp[z[0]]["metrics"]["WIN_RATE"]["index"] or 1.0) - 1) for z in ZONE_COVERS}
+        zc = max(ZONE_COVERS, key=lambda z: contrib[z[0]] if eff >= 0 else -contrib[z[0]])
+        k_, col, label = zc
+        wi = sp[k_]["metrics"]["WIN_RATE"]
+        more = "more" if d[col] >= L[col] else "less"
+        out.append({"effect": eff, "kind": "zone",
+                    "text": (f"{team} plays {label} {more} than most ({d[col]:.0f}% of dropbacks, league {L[col]:.0f}%); "
+                             f"his {label} win rate is {wi['index']:.2f}x league")})
 
     w = m["align_weights"]
     key = max(("WIDE", "SLOT", "INLINE"), key=lambda k: w[k] * abs(log(dprof["align"]["TE" if k == "INLINE" else k]["index"])))

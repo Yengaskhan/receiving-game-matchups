@@ -230,3 +230,38 @@ def test_coverage_edge_only_when_real_and_heavily_used():
     assert [e["cov"] for e in M.coverage_edges(prof, d, ranks, "X", lg) if e["cov"] == "MAN"] == ["MAN"]
     ranks["MAN_PCT"]["X"] = 6                       # not a top-5 man defense -> no flag
     assert not [e for e in M.coverage_edges(prof, d, ranks, "X", lg) if e["cov"] == "MAN"]
+
+
+def _ct_league():
+    lg = _league()
+    lg.ct = {"C0": 1.2, "C1": 1.65, "C2": 1.5, "C2M": 1.33, "C3": 1.75, "C4": 1.6, "C6": 1.65}
+    lg.ct_all = 1.6
+    for k, col in [("C0", "COVER_0_PCT"), ("C1", "COVER_1_PCT"), ("C2M", "COVER_2_MAN_PCT")]:
+        lg.defense[col] = {"C0": 4.0, "C1": 17.0, "C2M": 1.5}[k]
+    return lg
+
+
+def test_coverage_types_neutral_and_cover1_edge():
+    lg = _ct_league()
+    p = _player()
+    # Strong vs Cover 1 (3.0 yds/route on 200 routes), average elsewhere.
+    p["CT"] = {k: (200.0, 40, (3.0 if k == "C1" else lg.ct[k]) * 200) for k in lg.ct}
+    prof = M.player_profile(p, lg)
+    assert prof["ctypes"]["C1"]["index"] > 1.2 and prof["ct_edges"]["C1"]["conf"] > 0.9
+    d = dict(lg.defense, G=5)
+    dp = M.defense_profile(d, {"OUTER_FPG": 22.0, "SLOT_FPG": 16.0, "G": 5}, lg)
+    assert M.ctype_fit(prof, d, lg.defense) == pytest.approx(1.0)        # league-average mix -> neutral
+    heavy = dict(d, COVER_1_PCT=35.0, COVER_3_PCT=20.0)
+    assert M.ctype_fit(prof, heavy, lg.defense) > 1.02                     # Cover 1-heavy defense suits him
+    m = M.matchup(p, prof, heavy, M.defense_profile(heavy, {"OUTER_FPG": 22.0, "SLOT_FPG": 16.0, "G": 5}, lg), lg)
+    assert m["type_fit"] == pytest.approx(M.MODEL["type_yprr_share"] * m["ct_fit"] + (1 - M.MODEL["type_yprr_share"]) * m["zone_fit"])
+
+
+def test_without_coverage_types_the_layer_is_win_rate():
+    lg = _ct_league()
+    p = _player()
+    prof = M.player_profile(p, lg)
+    assert prof["ctypes"] == {}
+    d = dict(lg.defense, G=5)
+    m = M.matchup(p, prof, d, M.defense_profile(d, {"OUTER_FPG": 22.0, "SLOT_FPG": 16.0, "G": 5}, lg), lg)
+    assert m["ct_fit"] is None and m["type_fit"] == m["zone_fit"]

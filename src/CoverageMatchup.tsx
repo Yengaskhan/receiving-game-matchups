@@ -157,6 +157,46 @@ function AxisCard({ p, d, pair, axis, title, keys }: { p: Player; d: Defense; pa
   );
 }
 
+/** Cover 0/1/2/2 Man/3/4/6 from last season's yards/route by coverage type (nflverse). */
+function TypeCard({ p, d, pair }: { p: Player; d: Defense; pair: Pair | null }) {
+  const ct = p.ctypes!;
+  const keys: [CoverageKey, string][] = [['C0' as CoverageKey, 'C0'], ['C1' as CoverageKey, 'C1'], ['C2M' as CoverageKey, 'C2M'], ['C2', 'C2'], ['C3', 'C3'], ['C4', 'C4'], ['C6', 'C6']];
+  const names: Record<string, string> = { C0: 'Cover 0', C1: 'Cover 1', C2M: 'Cover 2 Man', C2: 'Cover 2', C3: 'Cover 3', C4: 'Cover 4', C6: 'Cover 6' };
+  const cov = new Map(d.coverage.map((c) => [c.key, c]));
+  const tot = keys.reduce((a, [k]) => a + (cov.get(k)?.pct ?? 0), 0) || 1;
+  const ltot = keys.reduce((a, [k]) => a + (cov.get(k)?.league ?? 0), 0) || 1;
+  const ss: Side[] = keys.map(([k, l]) => ({ key: k, label: l, share: (cov.get(k)?.pct ?? 0) / tot, league: (cov.get(k)?.league ?? 0) / ltot, idx: ct[k]?.index ?? 1, routes: Math.round(ct[k]?.routes ?? 0) }));
+  const base = ss.reduce((a, x) => a + x.league * x.idx, 0);
+  const tones: Record<string, Tone> = {};
+  for (const x of ss) if (x.share - x.league > 0.02) tones[x.key] = x.idx >= base ? 'good' : 'bad';
+  const lean = [...ss].sort((x, y) => y.share - y.league - (x.share - x.league))[0];
+  const tf = pair?.type_fit ?? 1;
+  const delta = (tf - 1) * 100;
+  const tone: Tone = !pair || Math.abs(delta) < 2 ? 'neutral' : delta > 0 ? 'good' : 'bad';
+  const e = p.ct_edges?.[lean.key];
+  const cl = e ? confLabel(e.conf) : null;
+  return (
+    <Card
+      title="Coverage types: Cover 0 / 1 / 2 / 2 Man / 3 / 4 / 6"
+      verdict={<Verdict tone={tone} delta={`${delta >= 0 ? '+' : '−'}${Math.abs(delta).toFixed(0)}%`} />}
+      footer={
+        <>
+          {d.team} plays the most extra <b className="text-ink">{names[lean.key]}</b> ({pctTxt(lean.share)} vs league {pctTxt(lean.league)}). His {names[lean.key]} yards/route last season:{' '}
+          <b className={lean.idx >= base ? 'text-edge-good' : 'text-edge-bad'}>{lean.idx.toFixed(2)}x</b> league (his average {base.toFixed(2)}x).
+          {e && cl && (
+            <span className="mt-1 flex items-center gap-1.5 text-[11.5px] text-ink-3">
+              <Pill tone={cl.tone}>{cl.label}</Pill> {Math.round(e.conf * 100)}% sure the gap is real · 2025 data (nflverse); this season's Cover 2/3/4/6 win rate counts 25%
+            </span>
+          )}
+        </>
+      }
+    >
+      <MixBars team={d.team} ss={ss} lean={lean.share - lean.league > 0.02 ? lean.key : null} minLabel={0.1} />
+      <IndexBars name={p.name.split(' ').slice(-1)[0]} ss={ss} tones={tones} unit="yds/rte '25" />
+    </Card>
+  );
+}
+
 function ZoneCard({ p, d, pair }: { p: Player; d: Defense; pair: Pair | null }) {
   const ss = sides(p, d, [['C2', 'Cover 2'], ['C3', 'Cover 3'], ['C4', 'Cover 4'], ['C6', 'Cover 6']], 'WIN_RATE');
   // His own zone average: his win-rate indexes weighted by the league's zone mix.
@@ -207,7 +247,7 @@ export function CoverageMatchup({ p, d, pair }: { p: Player; d: Defense; pair: P
       <div className="grid gap-3 lg:grid-cols-3">
         <AxisCard p={p} d={d} pair={pair} axis="man_zone" title="Man vs Zone" keys={[['MAN', 'Man'], ['ZONE', 'Zone']]} />
         <AxisCard p={p} d={d} pair={pair} axis="shell" title="Single-high vs Two-high" keys={[['SINGLE_HIGH', 'Single-high'], ['TWO_HIGH', 'Two-high']]} />
-        <ZoneCard p={p} d={d} pair={pair} />
+        {p.ctypes && Object.keys(p.ctypes).length > 0 ? <TypeCard p={p} d={d} pair={pair} /> : <ZoneCard p={p} d={d} pair={pair} />}
       </div>
     </section>
   );

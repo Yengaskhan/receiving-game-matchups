@@ -171,6 +171,17 @@ coverage_fit  = (1 − 0.15) × base_fit + 0.15 × zone_fit
 
 **Adding an axis:** append an entry to `AXES` with its player split columns and defense share columns, and the fit becomes the mean over all axes. A future "vs blitz / no blitz" split would go here. Cover 0, 1 and 2 Man have no player split; the Man split covers them.
 
+### Coverage types (Cover 0 / 1 / 2 / 2 Man / 3 / 4 / 6)
+
+The Data Suite exports split players by Cover 2/3/4/6 only by win rate, and not at all by Cover 0/1/2 Man. So this layer leads with **last season's yards/route by coverage type from nflverse** (play-level coverage labels, published only after a season ends):
+
+- `pipeline/build_coverage_types.py --season 2025` builds `data/nflverse/coverage_types_2025.csv` once: each WR/TE's routes, targets and yards vs each type. nflverse lists who was on the field, not who ran a route, so on-field pass plays are scaled by his Data Suite route rate for that season (removes TE blocking snaps). About half of 2025 pass plays carry a coverage label.
+- Per type: yards/route shrunk toward his own rate × the league rate in that type (60 routes), an index vs league, and "Is it real?" confidence vs his other types (same test as above).
+- `coverage-type fit = Σ defense share × index′ / Σ league share × index′`, where index′ pulls each index toward his average by (1 − confidence).
+- The layer = 75% that fit + 25% this season's Cover 2/3/4/6 win-rate fit; players without 2025 nflverse data (e.g. rookies) use win rate alone. It is 30% of coverage fit (man/zone and single/two-high are the other 70%).
+- **Man vs zone** now blends yards/route (75%) with this season's win rate (25%). Single- vs two-high stays yards/route only (no win-rate split exists).
+- Coverage-edge flags now include Cover 0, Cover 1 and Cover 2 Man.
+
 ### Step 4: Defense strength (defense side)
 
 ```

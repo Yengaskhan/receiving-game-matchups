@@ -114,7 +114,8 @@ def check_inputs(ex: dict[str, Export], joined: pl.DataFrame, reports: list[Join
 
 def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport], tm: TeamMap,
           season: int, week: int, games: list[dict], basis: str, current_rpg: dict[tuple, float] | None = None,
-          roles: dict[tuple, str] | None = None) -> dict:
+          roles: dict[tuple, str] | None = None, ctypes: dict[tuple, dict] | None = None,
+          ct_league: tuple[dict[str, float], float] | None = None) -> dict:
     checks = check_inputs(ex, joined, reports)
 
     players = [dict(p, TEAM_NFL=tm.fp(p["TEAM"], "receiving-situation.csv")) for p in joined.to_dicts()]
@@ -123,6 +124,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         if current_rpg is not None:
             p["RPG"] = current_rpg.get((p["NAME"], p["TEAM"], p["POS"]))
         p["ROLE"] = (roles or {}).get((p["NAME"], p["TEAM"], p["POS"]))
+        p["CT"] = (ctypes or {}).get((p["NAME"], p["TEAM"], p["POS"]))
     ids = [p["id"] for p in players]
     if len(set(ids)) != len(ids):
         raise FormatError("two players share a name and team; can't give them distinct ids.")
@@ -138,6 +140,8 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         raise FormatError("receiving-points-allowed.csv and coverage-matrix.csv don't cover the same 32 teams.")
 
     lg = M.league_baselines(players, list(defenses.values()), list(allowed.values()))
+    if ct_league:
+        lg.ct, lg.ct_all = ct_league
     profs = {p["id"]: M.player_profile(p, lg) for p in players}
     dprofs = {t: M.defense_profile(defenses[t], allowed[t], lg) for t in defenses}
     ranks = M.defense_ranks(defenses, dprofs, allowed)
@@ -174,7 +178,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         return {
             "player": pid, "defense": t, "score": m["score"], "delta": m["delta"], "parts": m["parts"],
             "proj": m["proj"], "fp_rr": m["fp_rr"], "ratio": m["ratio"],
-            "fit": m["fit"], "base_fit": m["base_fit"], "zone_fit": m["zone_fit"], "cov_yards": m["cov_yards"],
+            "fit": m["fit"], "base_fit": m["base_fit"], "zone_fit": m["zone_fit"], "type_fit": m["type_fit"], "ct_fit": m["ct_fit"], "cov_yards": m["cov_yards"],
             "axes": {k: {"fit": a["fit"], "def": a["def"], "league": a["league"]} for k, a in m["axes"].items()},
             "cov_index": m["cov_index"], "align_index": m["align_index"], "align_weights": m["align_weights"], "pos_index": m["pos_index"],
             "reasons": M.reasons(p, profs[pid], m, t, defenses[t], dprofs[t], lg, ranks),
@@ -201,6 +205,8 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
                         "td": p["OVERALL_TD"], "ay": p["OVERALL_AY"], "tgt_pct": p["OVERALL_TGT_PCT"]},
             "splits": pr["splits"],
             "edges": pr["edges"],
+            # Last season's yards/route by coverage type (nflverse), when we have it for him.
+            "ctypes": pr["ctypes"], "ct_edges": pr["ct_edges"],
             "alignment": {a: {"label": lab, "share": pr["align_shares"][a], "routes": p[f"{a}_RTE"], "tgt": p[f"{a}_TGT"],
                               "tprr": p[f"{a}_TPRR"], "yprr": p[f"{a}_YPRR"]} for a, lab in M.ALIGNMENTS},
             # Undefined by the source: shown for reference, never used in a calculation.

@@ -402,7 +402,11 @@ const EDGE_ROWS: { key: string; usage: string }[] = [
   { key: 'C3', usage: 'C3' },
   { key: 'C4', usage: 'C4' },
   { key: 'C6', usage: 'C6' },
+  { key: 'C0', usage: 'C0' },
+  { key: 'C1', usage: 'C1' },
+  { key: 'C2M', usage: 'C2M' },
 ];
+const CT_LABEL: Record<string, string> = { C0: 'Cover 0', C1: 'Cover 1', C2M: 'Cover 2 Man', C2: 'Cover 2', C3: 'Cover 3', C4: 'Cover 4', C6: 'Cover 6' };
 
 /** "Is it real?": each coverage split vs its opposite, with how confident we are it isn't luck. */
 function RealEdges({ p, d }: { p: Player; d: Defense }) {
@@ -423,16 +427,17 @@ function RealEdges({ p, d }: { p: Player; d: Defense }) {
           </thead>
           <tbody>
             {EDGE_ROWS.map(({ key, usage: u }) => {
-              const e = p.edges[key];
+              // Coverage types: last season's yards/route (nflverse) when we have it, else this season's win rate.
+              const e = p.ct_edges?.[key] ?? p.edges[key];
               if (!e) return null;
               const c = usage.get(u);
               const cl = confLabel(e.conf);
               const better = (e.z ?? 0) > 0;
-              const metric = e.metric === 'YPRR' ? 'yds/route' : 'win rate';
+              const metric = e.metric === 'YPRR' ? 'yds/route' : e.metric === 'YPRR_2025' ? "yds/route '25" : 'win rate';
               return (
                 <tr key={key} className="border-t border-line/60">
                   <td className="py-1.5 font-medium">
-                    {p.splits[key as CoverageKey].label}
+                    {p.splits[key as CoverageKey]?.label ?? CT_LABEL[key]}
                     <span className="block text-[10.5px] font-normal text-ink-3">{metric}</span>
                   </td>
                   <td className={`py-1.5 text-right font-semibold ${e.conf >= 0.9 ? (better ? 'text-edge-good' : 'text-edge-bad') : ''}`}>{idx(e.idx)}</td>

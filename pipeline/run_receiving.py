@@ -133,7 +133,7 @@ def schedule_week(season: int, week: int | None) -> tuple[int, list[dict]]:
     return week, games
 
 
-def load_views(tm) -> tuple[dict[str, dict], list[dict], dict[tuple, float], dict[tuple, str]]:
+def load_views(tm) -> tuple:
     """The exports behind each view: the current season, each prior season (players re-keyed to their
     current team) and, when there are prior seasons, all seasons combined."""
     from dataclasses import replace
@@ -161,12 +161,36 @@ def load_views(tm) -> tuple[dict[str, dict], list[dict], dict[tuple, float], dic
         labels.append({"key": "total", "label": f"{first}–{SEASON}", "note": f"{first} through {SEASON} combined"})
     s = cur["situation"].df
     rpg = {(r["NAME"], r["TEAM"], r["POS"]): (r["OVERALL_RTE"] / r["G"] if r["G"] else 0.0) for r in s.iter_rows(named=True)}
-    return views, labels, rpg, team_roles(cur["separation"].df)
+    ctypes, ct_league = load_coverage_types(views)
+    return views, labels, rpg, team_roles(cur["separation"].df), ctypes, ct_league
+
+
+def load_coverage_types(views: dict) -> tuple[dict[tuple, dict], tuple[dict[str, float], float] | None]:
+    """Last season's yards/route by coverage type (data/nflverse/coverage_types_<season>.csv, built once by
+    pipeline/build_coverage_types.py), keyed like the players: (Name, current team, POS)."""
+    out, league = {}, None
+    for season in sorted(PRIOR_SEASONS, reverse=True):
+        path = OUTPUT_DIR / "nflverse" / f"coverage_types_{season}.csv"
+        if not path.exists() or str(season) not in views:
+            continue
+        ct = pl.read_csv(path)
+        lg = ct.group_by("cov").agg(pl.col("rte").sum(), pl.col("yds").sum())
+        league = ({r["cov"]: r["yds"] / r["rte"] for r in lg.iter_rows(named=True)}, lg["yds"].sum() / lg["rte"].sum())
+        by_id: dict[str, dict] = {}
+        for r in ct.iter_rows(named=True):
+            by_id.setdefault(r["player_id"], {})[r["cov"]] = (float(r["rte"]), int(r["tgt"]), float(r["yds"]))
+        sit = views[str(season)]["situation"].df  # already re-keyed to current teams
+        for r in sit.select("NAME", "TEAM", "POS", "PLAYER_ID").iter_rows(named=True):
+            if r["PLAYER_ID"] in by_id:
+                out[(r["NAME"], r["TEAM"], r["POS"])] = by_id[r["PLAYER_ID"]]
+        print(f"Coverage types ({season}, nflverse): {len(out)} current players matched")
+        break
+    return out, league
 
 
 def run(week_arg: int | None, out: Path) -> int:
     tm = load_team_map()
-    views, labels, rpg, roles = load_views(tm)
+    views, labels, rpg, roles, ctypes, ct_league = load_views(tm)
     week, games = schedule_week(SEASON, week_arg)
     for g in games:
         for t in (g["away"], g["home"]):
@@ -180,7 +204,7 @@ def run(week_arg: int | None, out: Path) -> int:
         for r in reports:
             if r.unmatched_base or r.unmatched_other:
                 print(f"{FILES[r.file]['file']}: {len(r.unmatched_base)} situation rows and {len(r.unmatched_other)} {r.file} rows unmatched")
-        res = build(ex, joined, reports, tm, SEASON, week, games, basis, None if basis == str(SEASON) else rpg, roles)
+        res = build(ex, joined, reports, tm, SEASON, week, games, basis, None if basis == str(SEASON) else rpg, roles, ctypes, ct_league)
         for c in res["meta"]["checks"]:
             print(f"  ok  {c}")
         report_week(res, week)

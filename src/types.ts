@@ -41,6 +41,9 @@ export interface Player {
   splits: Record<CoverageKey, SplitBlock>;
   alignment: Record<'WIDE' | 'SLOT' | 'INLINE' | 'BACK', { label: string; share: number; routes: number; tgt: number; tprr: number; yprr: number }>;
   edges: Record<string, SplitEdge>;
+  /** Last season's yards/route by coverage type (nflverse): Cover 0/1/2/2 Man/3/4/6. Empty without data. */
+  ctypes?: Record<string, { label: string; routes: number; raw: number | null; adj: number; league: number; index: number }>;
+  ct_edges?: Record<string, SplitEdge>;
   reference: { sep_ms: number | null; ador: number | null; plus1: number | null; plus2: number | null; plus3: number | null; neg: number | null };
 }
 
@@ -52,7 +55,7 @@ export interface CoverageEdge { cov: CoverageKey; label: string; edge: boolean; 
 
 /** "Is it real?" for one coverage split: his index there vs in its opposite, and how confident. */
 export interface SplitEdge {
-  metric: 'YPRR' | 'WIN_RATE';
+  metric: 'YPRR' | 'WIN_RATE' | 'YPRR_2025';
   vs: string;
   vs_key: string;
   idx: number | null;
@@ -74,6 +77,8 @@ export interface Pair {
   ratio: number;
   fit: number;
   base_fit: number;
+  type_fit?: number;
+  ct_fit?: number | null;
   /** Coverage fit in yards per route gained vs a league-average coverage mix (the score's coverage part). */
   cov_yards?: number;
   zone_fit: number;
