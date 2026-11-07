@@ -181,18 +181,18 @@ function TypeCard({ p, d, pair }: { p: Player; d: Defense; pair: Pair | null }) 
       verdict={<Verdict tone={tone} delta={`${delta >= 0 ? '+' : '−'}${Math.abs(delta).toFixed(0)}%`} />}
       footer={
         <>
-          {d.team} plays the most extra <b className="text-ink">{names[lean.key]}</b> ({pctTxt(lean.share)} vs league {pctTxt(lean.league)}). His {names[lean.key]} yards/route last season:{' '}
+          {d.team} plays the most extra <b className="text-ink">{names[lean.key]}</b> ({pctTxt(lean.share)} vs league {pctTxt(lean.league)}). His {names[lean.key]} yards/route:{' '}
           <b className={lean.idx >= base ? 'text-edge-good' : 'text-edge-bad'}>{lean.idx.toFixed(2)}x</b> league (his average {base.toFixed(2)}x).
           {e && cl && (
             <span className="mt-1 flex items-center gap-1.5 text-[11.5px] text-ink-3">
-              <Pill tone={cl.tone}>{cl.label}</Pill> {Math.round(e.conf * 100)}% sure the gap is real · 2025 data (nflverse); this season's Cover 2/3/4/6 win rate counts 25%
+              <Pill tone={cl.tone}>{cl.label}</Pill> {Math.round(e.conf * 100)}% sure the gap is real · nflverse coverage labels (2025 view only); Cover 2/3/4/6 win rate counts 25%
             </span>
           )}
         </>
       }
     >
       <MixBars team={d.team} ss={ss} lean={lean.share - lean.league > 0.02 ? lean.key : null} minLabel={0.1} />
-      <IndexBars name={p.name.split(' ').slice(-1)[0]} ss={ss} tones={tones} unit="yds/rte '25" />
+      <IndexBars name={p.name.split(' ').slice(-1)[0]} ss={ss} tones={tones} unit="yds/route" />
     </Card>
   );
 }

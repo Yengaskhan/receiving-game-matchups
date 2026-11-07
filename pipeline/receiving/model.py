@@ -24,9 +24,10 @@ MODEL = {
     "low_sample_routes": 20,        # a split under this many routes is flagged in the page
     # Step 3
     # Coverage-type layer (Cover 0/1/2/2 Man/3/4/6) blended into coverage fit next to man/zone and shell.
-    # It leads with last season's yards/route by coverage type (nflverse), with this season's Cover 2/3/4/6
-    # win rates as support; without nflverse data for a player it is win rate alone.
-    "zone_detail_weight": 0.30,
+    # Only the 2025 view has yards/route by coverage type (nflverse publishes it after a season ends); there
+    # it leads (75%) with that season's Cover 2/3/4/6 win rate as support. Every other view uses win rate.
+    "zone_detail_weight": 0.15,     # weight of this layer with this season's win rate only (2026 view)
+    "type_weight": 0.30,            # weight when yards/route by coverage type exists (2025 view only)
     "type_yprr_share": 0.75,        # within that layer: yards/route (2025) vs win rate (this season)
     "mz_yprr_share": 0.75,          # man vs zone: yards/route vs win rate
     "k_type_routes": 60,            # shrinkage for yards/route by coverage type
@@ -366,7 +367,7 @@ def coverage_edges(prof: dict, d: dict, cov_ranks: dict[str, dict[str, int]], te
         if not e or e["z"] is None or r > MODEL["edge_usage_rank"] or e["conf"] < MODEL["edge_conf"]:
             continue
         good = e["z"] > 0
-        metric = {"YPRR": "yards/route", "YPRR_2025": "yards/route last season"}.get(e["metric"], "win rate")
+        metric = {"YPRR": "yards/route", "YPRR_2025": "yards/route"}.get(e["metric"], "win rate")
         rank_txt = "most in the NFL" if r == 1 else f"{ordinal(r)} most"
         out.append({
             "cov": key, "label": label, "edge": good, "conf": e["conf"], "rank": r, "pct": d[col], "league": L[col],
@@ -475,7 +476,7 @@ def matchup(p: dict, prof: dict, d: dict, dprof: dict, lg: League) -> dict:
     zf = zone_fit(prof, dprof, lg, confidence_weighted=True)
     ctf = ctype_fit(prof, d, L)
     type_fit = zf if ctf is None else MODEL["type_yprr_share"] * ctf + (1 - MODEL["type_yprr_share"]) * zf
-    lam = MODEL["zone_detail_weight"]
+    lam = MODEL["type_weight"] if ctf is not None else MODEL["zone_detail_weight"]
     fit = (1 - lam) * base_fit + lam * type_fit
     # The same fit in yards per route gained (or lost) vs a league-average coverage mix. The score uses
     # this, so a receiver who barely produces can't post a big "edge" from tiny numbers.
@@ -500,7 +501,7 @@ def matchup(p: dict, prof: dict, d: dict, dprof: dict, lg: League) -> dict:
     # Routes per game: his current-season role (RPG, set for prior / total views), else this data's.
     rpg = p.get("RPG") if p.get("RPG") is not None else (p["OVERALL_RTE"] / p["G"] if p["G"] else 0.0)
     return {
-        "axes": axes, "base_fit": base_fit, "zone_fit": zf, "ct_fit": ctf, "type_fit": type_fit, "fit": fit, "cov_yards": cov_yards, "e_league": e_lg,
+        "axes": axes, "base_fit": base_fit, "zone_fit": zf, "ct_fit": ctf, "type_fit": type_fit, "type_lam": lam, "fit": fit, "cov_yards": cov_yards, "e_league": e_lg,
         "cov_index": dprof["cov_index"], "align_index": align_idx, "align_weights": align_parts, "pos_index": pos_idx,
 
         "ratio": ratio, "fp_rr": fp_rr, "routes_pg": rpg, "proj": rpg * fp_rr,
@@ -564,7 +565,7 @@ def reasons(p: dict, prof: dict, m: dict, team: str, d: dict, dprof: dict, lg: L
                              f"he's {better} vs {word} ({i_lean:.2f}x league yards/route) than vs {other[2]} ({i_other:.2f}x), "
                              f"{conf * 100:.0f}% confident it's real")})
 
-    eff = MODEL["w_fit"] * log(1 + lam * (m["type_fit"] - 1))
+    eff = MODEL["w_fit"] * log(1 + m["type_lam"] * (m["type_fit"] - 1))
     if m.get("ct_fit") is not None:
         # Coverage types (last season's yards/route): the type that moves him most in the same direction.
         ct, ce = prof["ctypes"], prof["ct_edges"]
@@ -576,7 +577,7 @@ def reasons(p: dict, prof: dict, m: dict, team: str, d: dict, dprof: dict, lg: L
         more = "more" if d[col] >= L[col] else "less"
         out.append({"effect": eff, "kind": "zone",
                     "text": (f"{team} plays {label} {more} than most ({d[col]:.0f}% of dropbacks, league {L[col]:.0f}%); "
-                             f"his {label} yards/route last season was {ct[k_]['index']:.2f}x league ({ce[k_]['conf'] * 100:.0f}% confident it's real)")})
+                             f"his {label} yards/route was {ct[k_]['index']:.2f}x league ({ce[k_]['conf'] * 100:.0f}% confident it's real)")})
     else:
         zmix = dprof["zone_mix"]
         contrib = {z[0]: (zmix[z[0]] - lg.zone_mix[z[0]]) * ((sp[z[0]]["metrics"]["WIN_RATE"]["index"] or 1.0) - 1) for z in ZONE_COVERS}

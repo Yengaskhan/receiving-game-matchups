@@ -427,13 +427,13 @@ function RealEdges({ p, d }: { p: Player; d: Defense }) {
           </thead>
           <tbody>
             {EDGE_ROWS.map(({ key, usage: u }) => {
-              // Coverage types: last season's yards/route (nflverse) when we have it, else this season's win rate.
+              // Coverage types: yards/route (nflverse, 2025 view only) when we have it, else win rate.
               const e = p.ct_edges?.[key] ?? p.edges[key];
               if (!e) return null;
               const c = usage.get(u);
               const cl = confLabel(e.conf);
               const better = (e.z ?? 0) > 0;
-              const metric = e.metric === 'YPRR' ? 'yds/route' : e.metric === 'YPRR_2025' ? "yds/route '25" : 'win rate';
+              const metric = e.metric === 'YPRR' ? 'yds/route' : e.metric === 'YPRR_2025' ? 'yds/route' : 'win rate';
               return (
                 <tr key={key} className="border-t border-line/60">
                   <td className="py-1.5 font-medium">

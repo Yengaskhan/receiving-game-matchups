@@ -191,6 +191,7 @@ def load_coverage_types(views: dict) -> tuple[dict[tuple, dict], tuple[dict[str,
 def run(week_arg: int | None, out: Path) -> int:
     tm = load_team_map()
     views, labels, rpg, roles, ctypes, ct_league = load_views(tm)
+    ctypes_seasons = {str(s) for s in PRIOR_SEASONS}
     week, games = schedule_week(SEASON, week_arg)
     for g in games:
         for t in (g["away"], g["home"]):
@@ -204,7 +205,9 @@ def run(week_arg: int | None, out: Path) -> int:
         for r in reports:
             if r.unmatched_base or r.unmatched_other:
                 print(f"{FILES[r.file]['file']}: {len(r.unmatched_base)} situation rows and {len(r.unmatched_other)} {r.file} rows unmatched")
-        res = build(ex, joined, reports, tm, SEASON, week, games, basis, None if basis == str(SEASON) else rpg, roles, ctypes, ct_league)
+        res = build(ex, joined, reports, tm, SEASON, week, games, basis, None if basis == str(SEASON) else rpg, roles,
+                    # yards/route by coverage type is that season's own data: only in its season's view
+                    ctypes if basis in ctypes_seasons else None, ct_league if basis in ctypes_seasons else None)
         for c in res["meta"]["checks"]:
             print(f"  ok  {c}")
         report_week(res, week)
