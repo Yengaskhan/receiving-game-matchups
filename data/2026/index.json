@@ -1,8 +1,8 @@
 {
  "schema": 2,
  "season": 2026,
- "current_week": 9,
- "data_as_of": "2026-11-05 02:44",
+ "current_week": 10,
+ "data_as_of": "2026-11-13 16:15",
  "default_basis": "2026",
  "bases": [
   {
@@ -68,6 +68,19 @@
    "data_as_of": "2026-11-05 02:44",
    "first_gameday": "2026-11-05",
    "last_gameday": "2026-11-09",
+   "bases": [
+    "2026",
+    "2025",
+    "total"
+   ]
+  },
+  {
+   "week": 10,
+   "games": 14,
+   "file": "week-10.json",
+   "data_as_of": "2026-11-13 16:15",
+   "first_gameday": "2026-11-12",
+   "last_gameday": "2026-11-16",
    "bases": [
     "2026",
     "2025",
