@@ -191,7 +191,7 @@ cov_allowed    = mean_axis( allowed_axis / league allowed_axis )
 WR: align_allowed = wide × OUTER_FPG idx + slot × SLOT_FPG idx + inline × TE_FPG idx + backfield × 1.00
 TE: align_allowed = TE_FPG / league TE_FPG
 
-every defensive index is shrunk:  1 + G / (G + 4) × (index − 1)
+every defensive index is shrunk:  1 + G / (G + 3) × (index − 1)
 ```
 
 - The WR weights are his Wide/Slot/Inline/Backfield route shares, normalised.
@@ -202,9 +202,12 @@ every defensive index is shrunk:  1 + G / (G + 4) × (index − 1)
 
 ```
 coverage fit (per axis) = 1 + confidence × (E_axis(defense mix) / E_axis(league mix) − 1)     confidence = "Is it real?" for that gap
-multiplier              = coverage_fit^1.0 × alignment_allowed^0.5 × FP_per_dropback_allowed^0.25
+game (Vegas)            = his team's implied total this week / its average implied total in earlier weeks
+                          (nflverse schedule total_line and spread_line; 1.00 until a team has 3 lined games)
+multiplier              = alignment_allowed^0.45 × game^0.31 × coverage_fit^0.25
                           (alignment_allowed: outside / slot / inline FPG allowed, weighted by his route shares;
-                           defensive indexes shrunk toward 1.00 by games: 1 + G/(G + 10) × (index − 1))
+                           defensive indexes shrunk toward 1.00 by games: 1 + G/(G + 3) × (index − 1);
+                           FP per dropback allowed has weight 0, see below)
 expected change         = multiplier − 1                                   e.g. +5% = 5% more production than his normal week
 projection (PPR)        = (2026 routes / G) × adj_overall_FP_RR × multiplier     ← "matchup-adjusted projection"
 Matchup Score           = 50 + 50 × tanh(ln(multiplier) / 0.145)          fixed scale: 0% → 50, +5% → 66, +10% → 79, +20% → 93, −5% → 34
@@ -213,8 +216,12 @@ Matchup Score           = 50 + 50 × tanh(ln(multiplier) / 0.145)          fixed
 - **One number, two uses:** the score and the projection come from the same multiplier, so they always agree. The page shows the % next to every score, and each reason shows about how much it moves him.
 - **Fixed scale, not a ranking:** a small effect stays near 50. A player who is a bit worse against the coverage he'll see more of (e.g. −1%) gets about 47, not a bottom-of-the-slate score.
 - **Measured against his own normal week:** his season numbers came against roughly league-average coverage, so "normal" = a league-average defense. The score does not rate how good the player is.
-- **Coverage effects are counted at their real size.** In most weeks a defense's coverage mix moves a player a few percent; extreme defenses (e.g. 46% man) move proven players 5–10%.
-- **Points allowed are trusted gradually** (10 games to count half), because they depend heavily on which offenses a defense has faced.
+- **Weights come from a 2025 test, not judgment.** `pipeline/backtest_2025.py` scores every 2025 week from 5 to 18 using only earlier games (nflverse play-by-play and participation) and compares with what each WR/TE actually scored (1,645 player-games). Results are in `data/backtest/2025.json` and on the Track Record tab:
+  - Points allowed to his alignment and the Vegas team total predicted real results (rank correlation about 0.07 each).
+  - His own coverage splits (man/zone, shell, Cover 0–6) did not (about −0.04 to 0.00 at any shrinkage), so coverage fit has a small weight (0.25). The coverage cards, edges and "Is it real?" stay on the page as context.
+  - FP per dropback allowed added nothing once alignment allowed was in (weight 0).
+  - Current model: worst fifth of matchups −13% vs their normal week, best fifth +10% (old model: −6% / +13%, with a flatter middle; rank correlation 0.090 vs 0.066).
+- **Weekly results are noisy.** Even the best inputs explain a small part of one game. Judge the scores by groups of players over weeks, which the Track Record tab does.
 - **Not in the score:** FP allowed to the whole position group (overlaps the alignment numbers, which are more specific).
 
 ### "Is it real?" Coverage-edge confidence
@@ -263,7 +270,10 @@ Each team's WRs and TEs are ranked by **targets per game this season** (the curr
 | `players.json` | Every WR/TE: raw and adjusted splits, league rates, indexes, low-sample flags, alignment, reference metrics |
 | `defenses.json` | Every defense: coverage mix vs league, FP allowed by coverage and alignment with ranks, context, shrunk indexes |
 | `pairs/<TEAM>.json` | Every WR/TE vs that defense: score, projection, fit, factors, reasons, flags |
-| `week-XX.json` | The week's scheduled matchups (Slate Rankings, Defense Profiles) |
+| `week-XX.json` | The week's scheduled matchups (Slate Rankings, Defense Profiles), with Vegas totals; older weeks stay as published |
+| `track-record.json` | Each published week graded against actual receiving PPR (nflverse weekly stats, players with offensive snaps, games after the export), by score band |
+
+`data/backtest/2025.json`: the 2025 walk-forward test (re-run with `python pipeline/backtest_2025.py`).
 
 ## Tests
 

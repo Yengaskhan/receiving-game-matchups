@@ -4,6 +4,7 @@ import { DefenseView } from './DefenseView';
 import { formatAsOf } from './format';
 import { PlayerView } from './PlayerView';
 import { SlateView } from './SlateView';
+import { TrackRecordView } from './TrackRecordView';
 import type { WeekFile } from './types';
 
 /** True when the page runs inside an iframe (e.g. embedded on a website-builder page). */
@@ -15,15 +16,16 @@ const embedded = (() => {
   }
 })();
 
-export type Tab = 'player' | 'slate' | 'defense';
+export type Tab = 'player' | 'slate' | 'defense' | 'track';
 const TABS: [Tab, string][] = [
   ['slate', 'Slate Rankings'],
   ['player', 'Player vs Defense'],
   ['defense', 'Defense Profiles'],
+  ['track', 'Track Record'],
 ];
 
 /** The view lives in the URL hash so a link goes straight to it. */
-export type HashState = Partial<Record<'tab' | 'player' | 'opp' | 'week' | 'team' | 'pos' | 'min' | 'filter' | 'edges' | 'basis' | 'role', string>>;
+export type HashState = Partial<Record<'tab' | 'player' | 'opp' | 'week' | 'team' | 'pos' | 'min' | 'filter' | 'edges' | 'basis' | 'role' | 'tw', string>>;
 
 function readHash(): HashState {
   return Object.fromEntries(new URLSearchParams(window.location.hash.slice(1))) as HashState;
@@ -97,7 +99,7 @@ export default function ReceivingApp() {
                   {index.season} · Week {index.current_week}
                 </p>
                 <h1 className="text-[22px] font-semibold tracking-tight">Receiving Game Matchup Report</h1>
-                <p className="text-[12px] text-ink-2">Which WRs and TEs should beat their usual output this week, based on the opposing defense's coverage and what it allows.</p>
+                <p className="text-[12px] text-ink-2">Which WRs and TEs should beat their usual output this week, based on what the opposing defense allows where they line up, the Vegas game total, and coverage.</p>
               </div>
               {index.bases.length > 1 && (
                 <div className="flex flex-col gap-1">
@@ -146,6 +148,8 @@ export default function ReceivingApp() {
                 <PlayerView core={core} season={index.season} basis={basis} week={currentWeek} hash={hash} update={update} />
               ) : tab === 'slate' ? (
                 <SlateView index={index} basis={basis} hash={hash} update={update} />
+              ) : tab === 'track' ? (
+                <TrackRecordView season={index.season} hash={hash} update={update} />
               ) : (
                 <DefenseView core={core} week={currentWeek} hash={hash} update={update} />
               )}
@@ -169,7 +173,8 @@ export default function ReceivingApp() {
                   <li>Splits are compared as an index vs the league rate in that same coverage (1.00 = league average); raw rates are never compared across coverages.</li>
                   <li>Coverage fit = his expected yards per route given this defense's coverage mix, vs given the league's mix. Yards per route (not FP) because it counts the routes where the QB doesn't look his way and doesn't swing on touchdowns.</li>
                   <li>Coverage edge (“Is it real?”): how confident we can be that a player's gap between two coverages isn't luck, given how many routes it's based on. 90%+ = real. The slate flags real edges or weaknesses in a coverage this week's opponent plays at a top-5 rate.</li>
-                  <li>Matchup Score = the expected change in his production vs his normal week, from: coverage (his yards per route vs man and zone, single- and two-high, and his Cover 2/3/4/6 win rates, weighted by how this defense covers; each gap counted only as much as we're confident it's real), FP the defense allows where he lines up (outside, slot, inline), and FP it allows per dropback. Defensive numbers are trusted gradually (they need about 10 games to count half). The % goes on a fixed scale: 50 = normal, +5% ≈ 66, +10% ≈ 79, +20% ≈ 93. It measures this week against his own normal week, not how good the player is.</li>
+                  <li>Matchup Score = the expected change in his production vs his normal week, from three things, weighted by how much each predicted real results in a test on the full 2025 season (see Track Record): FP the defense allows where he lines up (outside, slot, inline; the biggest part), his team's Vegas implied total this week vs its average this season, and a smaller coverage part (his yards per route vs man/zone, single/two-high and Cover 2/3/4/6, each gap counted only as much as we're confident it's real). Defensive numbers are trusted gradually (half after 3 games). The % goes on a fixed scale: 50 = normal, +5% ≈ 66, +10% ≈ 79, +20% ≈ 93. It measures this week against his own normal week, not how good the player is.</li>
+                  <li>Coverage splits stay on every page as context, but in the 2025 test a player's own coverage splits did not predict his next game, so they count for little in the score.</li>
                   <li>Splits under {core.meta.model.low_sample_routes} routes are flagged “low n”. SEP MS, ADOR, +1/+2/+3 Rate and Neg Rate aren't defined by the source, so they're shown for reference only.</li>
                 </ul>
                 <ul className="list-disc space-y-1 pl-5">

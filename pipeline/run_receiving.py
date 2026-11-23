@@ -19,6 +19,7 @@ import polars as pl
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from receiving.build import build, team_roles, write, write_index  # noqa: E402
+from receiving.track import write_track_record  # noqa: E402
 from receiving.seasons import combine_exports, rekey_to_current  # noqa: E402
 from receiving.config import COVERAGE_AGREE_TOL, FILES, OUTPUT_DIR, PLAYER_FILES, POSITIONS, PRIOR_SEASONS, RAW_DIR, SEASON  # noqa: E402
 from receiving.join import join_player_files  # noqa: E402
@@ -120,7 +121,18 @@ def inspect() -> int:
     return 0
 
 
-def schedule_week(season: int, week: int | None) -> tuple[int, list[dict]]:
+def implied_totals(g: dict) -> tuple[float, float] | None:
+    """(away, home) Vegas implied points from nflverse's total_line and spread_line (home favoured if > 0)."""
+    tot, spr = g.get("total_line"), g.get("spread_line")
+    if tot is None or spr is None:
+        return None
+    home = (tot + spr) / 2
+    return tot - home, home
+
+
+def schedule_week(season: int, week: int | None) -> tuple[int, list[dict], dict[str, dict]]:
+    """The week's games and each team's Vegas game environment: this week's implied total, its average
+    implied total in earlier weeks this season, and the ratio (1.0 when there is no line yet)."""
     import nflreadpy as nfl
 
     sched = nfl.load_schedules([season]).filter(pl.col("game_type") == "REG")
@@ -128,9 +140,25 @@ def schedule_week(season: int, week: int | None) -> tuple[int, list[dict]]:
     if week not in set(sched["week"].to_list()):
         raise FormatError(f"week {week} is not on the {season} regular-season schedule.")
     wk = sched.filter(pl.col("week") == week).sort(["gameday", "gametime", "game_id"])
-    games = [{"game_id": g["game_id"], "away": g["away_team"], "home": g["home_team"], "gameday": g["gameday"], "gametime": g["gametime"]}
-             for g in wk.iter_rows(named=True)]
-    return week, games
+    games, vegas = [], {}
+    past: dict[str, list[float]] = {}
+    for g in sched.filter(pl.col("week") < week).iter_rows(named=True):
+        it = implied_totals(g)
+        if it:
+            past.setdefault(g["away_team"], []).append(it[0])
+            past.setdefault(g["home_team"], []).append(it[1])
+    for g in wk.iter_rows(named=True):
+        it = implied_totals(g)
+        game = {"game_id": g["game_id"], "away": g["away_team"], "home": g["home_team"], "gameday": g["gameday"], "gametime": g["gametime"]}
+        if it:
+            game.update({"total": g["total_line"], "spread": g["spread_line"], "away_imp": round(it[0], 2), "home_imp": round(it[1], 2)})
+            for team, imp in ((g["away_team"], it[0]), (g["home_team"], it[1])):
+                hist = past.get(team, [])
+                if len(hist) >= 3:
+                    avg = sum(hist) / len(hist)
+                    vegas[team] = {"imp": round(imp, 2), "avg": round(avg, 2), "rel": round(imp / avg, 4)}
+        games.append(game)
+    return week, games, vegas
 
 
 def load_views(tm) -> tuple:
@@ -192,7 +220,8 @@ def run(week_arg: int | None, out: Path) -> int:
     tm = load_team_map()
     views, labels, rpg, roles, ctypes, ct_league = load_views(tm)
     ctypes_seasons = {str(s) for s in PRIOR_SEASONS}
-    week, games = schedule_week(SEASON, week_arg)
+    week, games, vegas = schedule_week(SEASON, week_arg)
+    print(f"Vegas lines: {len(vegas)} of {2 * len(games)} teams this week")
     for g in games:
         for t in (g["away"], g["home"]):
             if t not in tm.names:
@@ -207,7 +236,7 @@ def run(week_arg: int | None, out: Path) -> int:
                 print(f"{FILES[r.file]['file']}: {len(r.unmatched_base)} situation rows and {len(r.unmatched_other)} {r.file} rows unmatched")
         res = build(ex, joined, reports, tm, SEASON, week, games, basis, None if basis == str(SEASON) else rpg, roles,
                     # yards/route by coverage type is that season's own data: only in its season's view
-                    ctypes if basis in ctypes_seasons else None, ct_league if basis in ctypes_seasons else None)
+                    ctypes if basis in ctypes_seasons else None, ct_league if basis in ctypes_seasons else None, vegas)
         for c in res["meta"]["checks"]:
             print(f"  ok  {c}")
         report_week(res, week)
@@ -218,6 +247,9 @@ def run(week_arg: int | None, out: Path) -> int:
     for basis, res in results.items():
         n += len(write(res, out, SEASON, week, basis))
     write_index(out, SEASON, week, labels, results[str(SEASON)]["meta"]["data_as_of"])
+    slug_to_id = {r["player"]: r["player_id"] for r in results[str(SEASON)]["players_ids"] if r["player_id"]}
+    tr = write_track_record(out, SEASON, week, slug_to_id)
+    print(f"Track record: {tr.relative_to(out.parent) if out.parent in tr.parents else tr}")
     print(f"\nWrote {n + 1} files to {out / str(SEASON)} for views {', '.join(results)} "
           f"(data as of {results[str(SEASON)]['meta']['data_as_of']} UTC)")
     return 0

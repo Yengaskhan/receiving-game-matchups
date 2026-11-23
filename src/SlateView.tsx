@@ -50,10 +50,10 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
 
   const download = () => {
     if (!week) return;
-    const head = ['Player', 'Pos', 'Role', 'Team', 'Opponent', 'Home', 'Matchup Score', 'Expected vs normal (%)', 'Matchup-adjusted projection (PPR)', 'Matchup FP/RR', 'Adj FP/RR', 'Coverage fit', 'Coverage allowed index', 'Alignment allowed index', 'Routes', 'Routes per game', 'Coverage edges', 'Top reason'];
+    const head = ['Player', 'Pos', 'Role', 'Team', 'Opponent', 'Home', 'Matchup Score', 'Expected vs normal (%)', 'Matchup-adjusted projection (PPR)', 'Matchup FP/RR', 'Adj FP/RR', 'Coverage fit', 'Coverage allowed index', 'Alignment allowed index', 'Vegas team total', 'Team avg implied total', 'Routes', 'Routes per game', 'Coverage edges', 'Top reason'];
     const esc = (v: string | number) => (typeof v === 'number' || /^-?\d+(\.\d+)?$/.test(v) ? String(v) : `"${v.replace(/"/g, '""')}"`);
     const lines = rows.map((r) =>
-      [r.name, r.pos, r.role ?? '', r.team, r.opponent, r.home ? 'Y' : 'N', r.score, ((r.delta ?? 0) * 100).toFixed(1), r.proj.toFixed(2), r.fp_rr.toFixed(3), r.adj_fp_rr.toFixed(3), r.fit.toFixed(3), r.cov_index.toFixed(3), r.align_index.toFixed(3), r.routes, r.routes_pg.toFixed(1), r.coverage_edges.map((e) => `${e.edge ? 'EDGE' : 'CONCERN'} ${e.text}`).join(' | '), r.reasons[0]?.text ?? '']
+      [r.name, r.pos, r.role ?? '', r.team, r.opponent, r.home ? 'Y' : 'N', r.score, ((r.delta ?? 0) * 100).toFixed(1), r.proj.toFixed(2), r.fp_rr.toFixed(3), r.adj_fp_rr.toFixed(3), r.fit.toFixed(3), r.cov_index.toFixed(3), r.align_index.toFixed(3), r.game ? r.game.imp.toFixed(1) : '', r.game ? r.game.avg.toFixed(1) : '', r.routes, r.routes_pg.toFixed(1), r.coverage_edges.map((e) => `${e.edge ? 'EDGE' : 'CONCERN'} ${e.text}`).join(' | '), r.reasons[0]?.text ?? '']
         .map(esc)
         .join(','),
     );
@@ -106,7 +106,7 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
             </span>
           </div>
           <div className="overflow-x-auto rounded-md border border-line bg-panel">
-            <table className="num w-full min-w-[880px] border-collapse text-[12.5px]">
+            <table className="num w-full min-w-[960px] border-collapse text-[12.5px]">
               <thead className="border-b border-line bg-panel-2/60">
                 <tr className="text-left">
                   <Th k="name" className="sticky left-0 z-10 bg-panel-2">Player</Th>
@@ -114,6 +114,7 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
                   <Th k="score" className="hidden text-center sm:table-cell">Matchup</Th>
                   <Th className="min-w-[11rem]">Coverage edge</Th>
                   <Th k="proj" className="text-right">Proj. (PPR)</Th>
+                  <Th className="text-right">Team total</Th>
                   <Th k="fit" className="text-right">Cov. fit</Th>
                   <Th className="min-w-[15rem]">Top reason</Th>
                   <Th k="routes_pg" className="text-right">Routes / G</Th>
@@ -172,6 +173,16 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
                     <td className="px-3 py-2 text-right" title={`${n1(r.routes_pg)} routes × ${n3(r.fp_rr)} FP/RR`}>
                       {n1(r.proj)}
                     </td>
+                    <td className="px-3 py-2 text-right" title={r.game ? `Vegas implied total ${n1(r.game.imp)} vs ${n1(r.game.avg)} average this season` : 'No Vegas line yet'}>
+                      {r.game ? (
+                        <>
+                          {n1(r.game.imp)}
+                          <span className={`block text-[10.5px] ${r.game.imp - r.game.avg > 0.5 ? 'text-edge-good' : r.game.imp - r.game.avg < -0.5 ? 'text-edge-bad' : 'text-ink-3'}`}>{signed(r.game.imp - r.game.avg, 1)} vs avg</span>
+                        </>
+                      ) : (
+                        <span className="text-ink-3">—</span>
+                      )}
+                    </td>
                     <td className={`px-3 py-2 text-right ${r.fit > 1.01 ? 'text-edge-good' : r.fit < 0.99 ? 'text-edge-bad' : ''}`}>{n2(r.fit)}</td>
                     <td className="px-3 py-2 text-[12px] text-ink-2">{r.reasons[0]?.text ?? '—'}</td>
                     <td className="px-3 py-2 text-right">
@@ -182,7 +193,7 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
                 ))}
                 {rows.length === 0 && (
                   <tr>
-                    <td colSpan={8} className="px-3 py-6 text-center text-ink-3">
+                    <td colSpan={9} className="px-3 py-6 text-center text-ink-3">
                       No players match these filters.
                     </td>
                   </tr>

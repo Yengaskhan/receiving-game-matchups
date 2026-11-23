@@ -84,8 +84,10 @@ export interface Pair {
   zone_fit: number;
   axes: Record<string, { fit: number; def: number; league: number }>;
   cov_index: number;
-  /** Score parts on a log scale (0 = neutral): coverage fit, FP allowed where he lines up, FP per dropback allowed. */
+  /** Score parts on a log scale (0 = neutral): coverage fit, FP allowed where he lines up, FP per dropback allowed, game (Vegas). */
   parts: Record<string, number>;
+  /** This week's Vegas implied total for his team vs its season average (only vs his actual opponent). */
+  game?: GameEnv | null;
   align_index: number;
   align_weights: Record<string, number>;
   pos_index?: number;
@@ -137,8 +139,9 @@ export interface SlateRow {
   adj_fp_rr: number;
   fit: number;
   cov_index: number;
-  /** Score parts on a log scale (0 = neutral): coverage fit, FP allowed where he lines up, FP per dropback allowed. */
+  /** Score parts on a log scale (0 = neutral): coverage fit, FP allowed where he lines up, FP per dropback allowed, game (Vegas). */
   parts: Record<string, number>;
+  game?: GameEnv | null;
   pos_index?: number;
   align_index: number;
   reasons: Reason[];
@@ -146,8 +149,11 @@ export interface SlateRow {
   coverage_edges: CoverageEdge[];
 }
 
+export interface GameEnv { imp: number; avg: number; rel: number }
+
 export interface WeekFile {
   schema: number;
+  model_version?: number;
   season: number;
   week: number;
   data_as_of: string;
@@ -169,6 +175,25 @@ export interface Meta {
   league: { defense: Record<string, number>; pos_fp_rr: Record<Pos, number> };
   joins: { file: string; by_team: number; by_pos: number; unmatched_base: unknown[]; unmatched_other: unknown[] }[];
   checks: string[];
+}
+
+export interface TrackBand { key: string; label: string; n: number; beat: number | null; vs_normal: number | null }
+export interface TrackRow { player: string; name: string; team: string; pos: Pos; opponent: string; score: number; normal: number; proj: number; actual: number }
+export interface TrackRecord {
+  season: number;
+  generated_at: string;
+  min_routes: number;
+  bands: { key: string; label: string }[];
+  overall: { model_version: number; weeks: number[]; n: number; bands: TrackBand[] }[];
+  weeks: { week: number; model_version: number; data_as_of: string; n: number; graded_games: number; bands: TrackBand[]; rows: TrackRow[] }[];
+}
+export interface Backtest {
+  season: number;
+  weeks: [number, number];
+  n: number;
+  outcome: string;
+  signals: { key: string; label: string; rho: number }[];
+  models: { key: string; label: string; rho: number; rho_90ci: [number, number]; quintiles: { quintile: number; n: number; beat: number; vs_normal: number }[] }[];
 }
 
 export interface SeasonIndex {

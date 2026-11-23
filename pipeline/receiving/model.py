@@ -9,9 +9,17 @@ Steps
      league's mix. Axes are listed in AXES, so a new split (e.g. vs blitz) is one more entry.
   4  Defense strength (defense side): FP allowed given its own coverage mix, and FP allowed to his
      alignments (WR) or to TEs, each as an index vs league, shrunk toward 1.00 by games played.
-  5  Matchup multiplier = coverage fit x alignment allowed^0.5 x FP-per-dropback allowed^0.25: the
+  5  Matchup multiplier = alignment allowed^0.45 x team total vs its average^0.31 x coverage fit^0.25: the
      expected change in his production vs his normal week. It drives both the projection and the 0-100
      Matchup Score (a fixed scale, 50 = his normal week).
+
+Weights come from a walk-forward backtest on the 2025 season (pipeline/backtest_2025.py; results in
+data/backtest/2025.json): every week from 5 to 18, each signal was built only from earlier games and
+compared with what receivers actually scored that week (1,645 player-games).
+  - Points allowed to his alignment (per game) and the Vegas team total predicted real results.
+  - His own coverage splits (man/zone, single/two-high, Cover 0-6) did not: slightly negative alone,
+    at every shrinkage tried. They keep a small weight (0.25) and stay on the page as context.
+  - FP per dropback allowed added nothing once alignment allowed was in, so its weight is 0.
 """
 
 from dataclasses import dataclass, field
@@ -32,18 +40,23 @@ MODEL = {
     "mz_yprr_share": 0.75,          # man vs zone: yards/route vs win rate
     "k_type_routes": 60,            # shrinkage for yards/route by coverage type
     # Step 4: defensive indexes are shrunk toward 1.00: 1 + G / (G + k) * (index - 1)
-    # 10: a defense needs about 10 games before its points-allowed numbers count half. Points allowed
-    # over a few games depend heavily on which offenses it faced, so they are trusted slowly.
-    "k_def_games": 10,
+    # 3: a defense's points allowed count half after 3 games, about 77% after 10. In the 2025 backtest
+    # the ranking barely changed with k (0 to 20); k=3 with the weight below matched the real effect size.
+    "k_def_games": 3,
     # Step 5: matchup FP/RR = adj overall FP/RR * fit^w1 * coverage allowed^w2 * alignment allowed^w3
-    "w_fit": 1.0,
-    "w_cov_allowed": 0.25,
-    "w_align_allowed": 0.5,
+    # From the 2025 backtest (regression of actual points vs his normal week on the log signals):
+    "w_fit": 0.25,                  # his coverage fit: no measurable effect, kept small as a tiebreaker
+    "w_cov_allowed": 0.0,           # FP per dropback allowed: nothing beyond alignment allowed
+    "w_align_allowed": 0.45,        # FP per game allowed to where he lines up (or to TEs)
+    # Game environment: his team's Vegas implied total this week vs its average implied total in earlier
+    # weeks this season (nflverse schedule lines). +10% team total -> about +3% for him.
+    "w_vegas": 0.31,
     # Matchup Score: the expected change in his production vs his normal week, i.e. the same multiplier
     # the projection uses (coverage fit x alignment allowed^0.5 x FP-per-dropback allowed^0.25), put on a
     # fixed 0-100 scale: score = 50 + 50 * tanh(ln(multiplier) / score_scale). With 0.145: +5% -> 66,
     # +10% -> 79, +20% -> 93, -2% -> 43. Not a ranking: a small effect gets a score near 50.
     "score_scale": 0.145,
+    "model_version": 2,
     # Reference set: the week's scheduled pairs at his position whose player has at least this many routes
     "score_ref_min_routes": 50,
     # Reasons: at most this many, and only contributors worth at least this much of the score (z units)
@@ -449,7 +462,8 @@ def zone_fit(prof: dict, dprof: dict, lg: League, confidence_weighted: bool = Fa
     return num / den
 
 
-def matchup(p: dict, prof: dict, d: dict, dprof: dict, lg: League) -> dict:
+def matchup(p: dict, prof: dict, d: dict, dprof: dict, lg: League, game: dict | None = None) -> dict:
+    """game: this week's Vegas numbers for his team ({"imp", "avg", "rel"}) when d is his actual opponent."""
     L = lg.defense
     axes = {}
     for ax in AXES:
@@ -496,13 +510,16 @@ def matchup(p: dict, prof: dict, d: dict, dprof: dict, lg: League) -> dict:
     align_parts = w
     pos_idx = dprof["align"]["TE" if p["POS"] == "TE" else "WR"]["index"]
 
-    ratio = (fit ** MODEL["w_fit"]) * (dprof["cov_index"] ** MODEL["w_cov_allowed"]) * (align_idx ** MODEL["w_align_allowed"])
+    vegas = game["rel"] if game and game.get("rel") else 1.0
+    ratio = ((fit ** MODEL["w_fit"]) * (dprof["cov_index"] ** MODEL["w_cov_allowed"]) * (align_idx ** MODEL["w_align_allowed"])
+             * (vegas ** MODEL["w_vegas"]))
     fp_rr = prof["adj_overall"] * ratio
     # Routes per game: his current-season role (RPG, set for prior / total views), else this data's.
     rpg = p.get("RPG") if p.get("RPG") is not None else (p["OVERALL_RTE"] / p["G"] if p["G"] else 0.0)
     return {
         "axes": axes, "base_fit": base_fit, "zone_fit": zf, "ct_fit": ctf, "type_fit": type_fit, "type_lam": lam, "fit": fit, "cov_yards": cov_yards, "e_league": e_lg,
         "cov_index": dprof["cov_index"], "align_index": align_idx, "align_weights": align_parts, "pos_index": pos_idx,
+        "game": game if game and game.get("rel") else None,
 
         "ratio": ratio, "fp_rr": fp_rr, "routes_pg": rpg, "proj": rpg * fp_rr,
     }
@@ -532,6 +549,7 @@ def score_parts(m: dict) -> dict[str, float]:
         "coverage": MODEL["w_fit"] * log(m["fit"]),
         "alignment": MODEL["w_align_allowed"] * log(m["align_index"]),
         "ppd": MODEL["w_cov_allowed"] * log(m["cov_index"]),
+        "game": MODEL["w_vegas"] * log(m["game"]["rel"]) if m.get("game") else 0.0,
     }
 
 
@@ -602,6 +620,13 @@ def reasons(p: dict, prof: dict, m: dict, team: str, d: dict, dprof: dict, lg: L
     mz = dprof["cov_axes"]["man_zone"]
     out.append({"effect": MODEL["w_cov_allowed"] * log(m["cov_index"]), "kind": "allowed",
                 "text": f"Allows {mz['allowed']:.2f} PPR points per dropback to WRs and TEs ({_rank_phrase(r, 32)}; league {mz['league']:.2f})"})
+
+    g = m.get("game")
+    if g:
+        more = "more" if g["imp"] >= g["avg"] else "less"
+        out.append({"effect": MODEL["w_vegas"] * log(g["rel"]), "kind": "game",
+                    "text": (f"Vegas has {p['TEAM_NFL']} at {g['imp']:.1f} points, {abs(g['imp'] - g['avg']):.1f} {more} than "
+                             f"their {g['avg']:.1f} average this season")})
 
     out = [x for x in out if abs(x["effect"]) >= MODEL["reason_min_effect"]]
     out.sort(key=lambda x: -abs(x["effect"]))

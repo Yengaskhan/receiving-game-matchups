@@ -115,7 +115,8 @@ def check_inputs(ex: dict[str, Export], joined: pl.DataFrame, reports: list[Join
 def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport], tm: TeamMap,
           season: int, week: int, games: list[dict], basis: str, current_rpg: dict[tuple, float] | None = None,
           roles: dict[tuple, str] | None = None, ctypes: dict[tuple, dict] | None = None,
-          ct_league: tuple[dict[str, float], float] | None = None) -> dict:
+          ct_league: tuple[dict[str, float], float] | None = None, vegas: dict[str, dict] | None = None) -> dict:
+    """vegas: team -> {"imp", "avg", "rel"} for this week's games (Vegas implied team totals)."""
     checks = check_inputs(ex, joined, reports)
 
     players = [dict(p, TEAM_NFL=tm.fp(p["TEAM"], "receiving-situation.csv")) for p in joined.to_dicts()]
@@ -147,20 +148,24 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
     ranks = M.defense_ranks(defenses, dprofs, allowed)
     cov_ranks = M.usage_ranks(defenses)
 
-    # Every player vs every defense (not his own team).
-    pairs: dict[str, dict[str, dict]] = {t: {} for t in defenses}
-    for p in players:
-        for t in defenses:
-            if t == p["TEAM_NFL"]:
-                continue
-            pairs[t][p["id"]] = M.matchup(p, profs[p["id"]], defenses[t], dprofs[t], lg)
-
     # The week's schedule: each team's opponent, or bye.
     opp = {}
     for g in games:
         opp[g["away"]] = (g["home"], False, g["game_id"])
         opp[g["home"]] = (g["away"], True, g["game_id"])
     byes = sorted(set(defenses) - set(opp))
+    vegas = vegas or {}
+
+    # Every player vs every defense (not his own team). The game environment (Vegas) only applies to the
+    # defense he actually plays this week.
+    pairs: dict[str, dict[str, dict]] = {t: {} for t in defenses}
+    for p in players:
+        o = opp.get(p["TEAM_NFL"])
+        for t in defenses:
+            if t == p["TEAM_NFL"]:
+                continue
+            game = vegas.get(p["TEAM_NFL"]) if o and o[0] == t else None
+            pairs[t][p["id"]] = M.matchup(p, profs[p["id"]], defenses[t], dprofs[t], lg, game)
 
     # Matchup Score: the matchup multiplier (expected change vs his normal week) on a fixed 0-100 scale.
     minr = M.MODEL["score_ref_min_routes"]
@@ -181,6 +186,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
             "fit": m["fit"], "base_fit": m["base_fit"], "zone_fit": m["zone_fit"], "type_fit": m["type_fit"], "ct_fit": m["ct_fit"], "cov_yards": m["cov_yards"],
             "axes": {k: {"fit": a["fit"], "def": a["def"], "league": a["league"]} for k, a in m["axes"].items()},
             "cov_index": m["cov_index"], "align_index": m["align_index"], "align_weights": m["align_weights"], "pos_index": m["pos_index"],
+            "game": m["game"],
             "reasons": M.reasons(p, profs[pid], m, t, defenses[t], dprofs[t], lg, ranks),
             "flags": M.flags(p, profs[pid], t, defenses[t], lg),
             "coverage_edges": M.coverage_edges(profs[pid], defenses[t], cov_ranks, t, lg),
@@ -252,7 +258,8 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         rows.append({"player": p["id"], "name": p["NAME"], "team": p["TEAM_NFL"], "pos": p["POS"], "role": p["ROLE"], "opponent": o[0], "home": o[1],
                      "game_id": o[2], "routes": p["OVERALL_RTE"], "routes_pg": rpg_of(p),
                      "score": po["score"], "delta": po["delta"], "proj": po["proj"], "fp_rr": po["fp_rr"], "adj_fp_rr": profs[p["id"]]["adj_overall"],
-                     "fit": po["fit"], "cov_index": po["cov_index"], "align_index": po["align_index"], "parts": po["parts"],
+                     "fit": po["fit"], "cov_index": po["cov_index"], "align_index": po["align_index"], "parts": po["parts"], "game": po["game"],
+                     "player_id": p.get("PLAYER_ID"),
                      "reasons": po["reasons"], "flags": po["flags"], "coverage_edges": po["coverage_edges"]})
     rows.sort(key=lambda r: (-r["score"], -r["proj"]))
 
@@ -282,9 +289,10 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
     }
     week_out = {
         "schema": SCHEMA_VERSION, "season": season, "week": week, "basis": basis, "data_as_of": as_of, "generated_at": meta["generated_at"],
-        "games": games, "byes": byes, "rows": rows,
+        "model_version": M.MODEL["model_version"], "games": games, "byes": byes, "rows": rows,
     }
     return {"meta": meta, "players": players_out, "defenses": defenses_out, "pairs": pair_files, "week": week_out,
+            "players_ids": [{"player": p["id"], "player_id": p.get("PLAYER_ID")} for p in players],
             "_debug": {"rows": rows}}
 
 

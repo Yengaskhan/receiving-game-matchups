@@ -265,3 +265,41 @@ def test_without_coverage_types_the_layer_is_win_rate():
     d = dict(lg.defense, G=5)
     m = M.matchup(p, prof, d, M.defense_profile(d, {"OUTER_FPG": 22.0, "SLOT_FPG": 16.0, "G": 5}, lg), lg)
     assert m["ct_fit"] is None and m["type_fit"] == m["zone_fit"]
+
+
+# ------------------------------------------------------------------------------------------------
+# Game environment (Vegas) and the track record
+
+def test_vegas_moves_only_the_scheduled_game():
+    import math
+    lg = _league()
+    p = dict(_player(), TEAM_NFL="TEN")
+    prof = M.player_profile(p, lg)
+    d = dict(lg.defense, G=5)
+    dp = M.defense_profile(d, {"OUTER_FPG": 22.0, "SLOT_FPG": 16.0, "G": 5}, lg)
+    base = M.matchup(p, prof, d, dp, lg)
+    game = {"imp": 24.0, "avg": 20.0, "rel": 1.2}
+    m = M.matchup(p, prof, d, dp, lg, game)
+    assert base["ratio"] == pytest.approx(1.0) and base["game"] is None
+    assert m["ratio"] == pytest.approx(1.2 ** M.MODEL["w_vegas"])
+    assert M.score_parts(m)["game"] == pytest.approx(M.MODEL["w_vegas"] * math.log(1.2))
+    assert sum(M.score_parts(m).values()) == pytest.approx(math.log(m["ratio"]))
+    assert M.score_from_ratio(m["ratio"]) > 50
+    texts = [r["text"] for r in M.reasons(p, prof, m, "DAL", d, dp, lg, {"cov": {"DAL": 16}, "OUTER_FPG": {"DAL": 16}, "SLOT_FPG": {"DAL": 16}, "TE_FPG": {"DAL": 16}})]
+    assert any("Vegas has TEN at 24.0 points, 4.0 more than their 20.0 average" in t for t in texts)
+
+
+def test_implied_totals():
+    from run_receiving import implied_totals
+    assert implied_totals({"total_line": 44.0, "spread_line": 3.0}) == (20.5, 23.5)   # home favoured by 3
+    assert implied_totals({"total_line": None, "spread_line": 3.0}) is None
+
+
+def test_track_record_bands():
+    from receiving.track import band_stats
+    rows = [{"score": 70, "normal": 10.0, "actual": 15.0}, {"score": 60, "normal": 10.0, "actual": 5.0},
+            {"score": 50, "normal": 8.0, "actual": 8.0}, {"score": 20, "normal": 10.0, "actual": 2.0}]
+    b = {x["key"]: x for x in band_stats(rows)}
+    assert b["good"]["n"] == 2 and b["good"]["beat"] == 0.5 and b["good"]["vs_normal"] == pytest.approx(0.0)
+    assert b["neutral"]["beat"] == 0.0 and b["neutral"]["vs_normal"] == pytest.approx(0.0)
+    assert b["tough"]["vs_normal"] == pytest.approx(-0.8)

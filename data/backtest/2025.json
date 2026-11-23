@@ -1,0 +1,145 @@
+{
+ "season": 2025,
+ "weeks": [
+  5,
+  18
+ ],
+ "n": 1645,
+ "outcome": "receiving PPR points vs his normal week (FP per route before the week x routes per game)",
+ "signals": [
+  {
+   "key": "fit_mz",
+   "label": "His man vs zone fit",
+   "rho": -0.039
+  },
+  {
+   "key": "fit_shell",
+   "label": "His single- vs two-high fit",
+   "rho": -0.018
+  },
+  {
+   "key": "fit_ct",
+   "label": "His Cover 0-6 fit",
+   "rho": -0.006
+  },
+  {
+   "key": "gfit_ct",
+   "label": "Cover 0-6 fit by player type (slot WR / wide WR / TE)",
+   "rho": 0.027
+  },
+  {
+   "key": "d_align_fpg",
+   "label": "Points per game allowed to his alignment",
+   "rho": 0.073
+  },
+  {
+   "key": "d_align_fpt",
+   "label": "Points per target allowed to his alignment",
+   "rho": 0.05
+  },
+  {
+   "key": "d_pos_fpg",
+   "label": "Points per game allowed to his position",
+   "rho": 0.064
+  },
+  {
+   "key": "d_ppd",
+   "label": "Points per dropback allowed to WR/TE",
+   "rho": 0.056
+  },
+  {
+   "key": "d_ppd_recent",
+   "label": "Points per dropback allowed, last 4 weeks",
+   "rho": 0.045
+  },
+  {
+   "key": "vegas_rel",
+   "label": "Vegas team total vs its average",
+   "rho": 0.075
+  }
+ ],
+ "models": [
+  {
+   "key": "v1",
+   "label": "Old model (coverage fit x alignment allowed^0.5 x FP/dropback^0.25)",
+   "rho": 0.066,
+   "rho_90ci": [
+    0.029,
+    0.107
+   ],
+   "quintiles": [
+    {
+     "quintile": 1,
+     "n": 329,
+     "beat": 0.3982,
+     "vs_normal": -0.0576
+    },
+    {
+     "quintile": 2,
+     "n": 329,
+     "beat": 0.4468,
+     "vs_normal": 0.0039
+    },
+    {
+     "quintile": 3,
+     "n": 329,
+     "beat": 0.462,
+     "vs_normal": 0.0555
+    },
+    {
+     "quintile": 4,
+     "n": 329,
+     "beat": 0.4286,
+     "vs_normal": -0.0151
+    },
+    {
+     "quintile": 5,
+     "n": 329,
+     "beat": 0.4924,
+     "vs_normal": 0.1268
+    }
+   ]
+  },
+  {
+   "key": "v2",
+   "label": "New model (alignment allowed^0.45 x Vegas^0.31 x coverage fit^0.25)",
+   "rho": 0.09,
+   "rho_90ci": [
+    0.046,
+    0.123
+   ],
+   "quintiles": [
+    {
+     "quintile": 1,
+     "n": 329,
+     "beat": 0.3708,
+     "vs_normal": -0.128
+    },
+    {
+     "quintile": 2,
+     "n": 329,
+     "beat": 0.4407,
+     "vs_normal": 0.0717
+    },
+    {
+     "quintile": 3,
+     "n": 329,
+     "beat": 0.4498,
+     "vs_normal": 0.0058
+    },
+    {
+     "quintile": 4,
+     "n": 329,
+     "beat": 0.4772,
+     "vs_normal": 0.053
+    },
+    {
+     "quintile": 5,
+     "n": 329,
+     "beat": 0.4894,
+     "vs_normal": 0.0982
+    }
+   ]
+  }
+ ]
+}

@@ -1,4 +1,4 @@
-import type { Defense, Meta, PairFile, Player, SeasonIndex, WeekFile } from './types';
+import type { Backtest, Defense, Meta, PairFile, Player, SeasonIndex, TrackRecord, WeekFile } from './types';
 
 /*
  * Everything is precomputed by pipeline/run_receiving.py and committed under data/<season>/<view>/ (one
@@ -38,3 +38,8 @@ export async function loadCore(season: number, basis: string): Promise<Core> {
 
 export const loadPairs = (season: number, basis: string, team: string) => need(pairs, `/data/${season}/${basis}/pairs/${team}.json`);
 export const loadWeek = (season: number, basis: string, file: string) => need(weeks, `/data/${season}/${basis}/${file}`);
+
+const tracks = import.meta.glob('/data/*/track-record.json', { import: 'default' }) as Record<string, () => Promise<TrackRecord>>;
+const backtests = import.meta.glob('/data/backtest/*.json', { import: 'default' }) as Record<string, () => Promise<Backtest>>;
+export const loadTrackRecord = (season: number) => need(tracks, `/data/${season}/track-record.json`);
+export const loadBacktests = () => Promise.all(Object.values(backtests).map((l) => l()));
