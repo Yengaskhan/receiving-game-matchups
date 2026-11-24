@@ -25,7 +25,7 @@ const TABS: [Tab, string][] = [
 ];
 
 /** The view lives in the URL hash so a link goes straight to it. */
-export type HashState = Partial<Record<'tab' | 'player' | 'opp' | 'week' | 'team' | 'pos' | 'min' | 'filter' | 'edges' | 'basis' | 'role' | 'tw', string>>;
+export type HashState = Partial<Record<'tab' | 'player' | 'opp' | 'week' | 'team' | 'pos' | 'min' | 'filter' | 'edges' | 'basis' | 'role' | 'tw' | 'out', string>>;
 
 function readHash(): HashState {
   return Object.fromEntries(new URLSearchParams(window.location.hash.slice(1))) as HashState;

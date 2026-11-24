@@ -30,6 +30,7 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
   const minRoutes = hash.min != null ? Number(hash.min) : 50;
   const query = hash.filter ?? '';
   const edgesOnly = hash.edges === '1';
+  const showOut = hash.out === '1';
   const [sort, setSort] = useState<SortState<SortKey>>({ key: 'score', desc: true });
 
   const teams = useMemo(() => [...new Set(week?.rows.map((r) => r.team) ?? [])].sort(), [week]);
@@ -37,7 +38,7 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
     if (!week) return [];
     const q = query.trim().toLowerCase();
     const list = week.rows.filter(
-      (r) => (pos === 'all' || r.pos === pos) && roleMatch(r.role, role) && (team === 'all' || r.team === team || r.opponent === team) && r.routes >= minRoutes && (!q || r.name.toLowerCase().includes(q)) && (!edgesOnly || r.coverage_edges.length > 0),
+      (r) => (pos === 'all' || r.pos === pos) && roleMatch(r.role, role) && (team === 'all' || r.team === team || r.opponent === team) && r.routes >= minRoutes && (!q || r.name.toLowerCase().includes(q)) && (!edgesOnly || r.coverage_edges.length > 0) && (showOut || !sidelined(r)),
     );
     const val = (r: SlateRow): number | string => (sort.key === 'name' ? r.name : sort.key === 'opponent' ? r.opponent : r[sort.key]);
     return list.sort((a, b) => {
@@ -46,14 +47,14 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
       const c = typeof va === 'string' ? va.localeCompare(vb as string) : va - (vb as number);
       return sort.desc ? -c : c;
     });
-  }, [week, pos, role, team, minRoutes, query, edgesOnly, sort]);
+  }, [week, pos, role, team, minRoutes, query, edgesOnly, showOut, sort]);
 
   const download = () => {
     if (!week) return;
-    const head = ['Player', 'Pos', 'Role', 'Team', 'Opponent', 'Home', 'Matchup Score', 'Expected vs normal (%)', 'Matchup-adjusted projection (PPR)', 'Matchup FP/RR', 'Adj FP/RR', 'Coverage fit', 'Coverage allowed index', 'Alignment allowed index', 'Vegas team total', 'Team avg implied total', 'Routes', 'Routes per game', 'Coverage edges', 'Top reason'];
+    const head = ['Player', 'Pos', 'Role', 'Team', 'Opponent', 'Home', 'Matchup Score', 'Expected vs normal (%)', 'Matchup-adjusted projection (PPR)', 'Matchup FP/RR', 'Adj FP/RR', 'Coverage fit', 'Coverage allowed index', 'Alignment allowed index', 'Vegas team total', 'Team avg implied total', 'Routes', 'Routes per game', 'Coverage edges', 'Top reason', 'Status'];
     const esc = (v: string | number) => (typeof v === 'number' || /^-?\d+(\.\d+)?$/.test(v) ? String(v) : `"${v.replace(/"/g, '""')}"`);
     const lines = rows.map((r) =>
-      [r.name, r.pos, r.role ?? '', r.team, r.opponent, r.home ? 'Y' : 'N', r.score, ((r.delta ?? 0) * 100).toFixed(1), r.proj.toFixed(2), r.fp_rr.toFixed(3), r.adj_fp_rr.toFixed(3), r.fit.toFixed(3), r.cov_index.toFixed(3), r.align_index.toFixed(3), r.game ? r.game.imp.toFixed(1) : '', r.game ? r.game.avg.toFixed(1) : '', r.routes, r.routes_pg.toFixed(1), r.coverage_edges.map((e) => `${e.edge ? 'EDGE' : 'CONCERN'} ${e.text}`).join(' | '), r.reasons[0]?.text ?? '']
+      [r.name, r.pos, r.role ?? '', r.team, r.opponent, r.home ? 'Y' : 'N', r.score, ((r.delta ?? 0) * 100).toFixed(1), r.proj.toFixed(2), r.fp_rr.toFixed(3), r.adj_fp_rr.toFixed(3), r.fit.toFixed(3), r.cov_index.toFixed(3), r.align_index.toFixed(3), r.game ? r.game.imp.toFixed(1) : '', r.game ? r.game.avg.toFixed(1) : '', r.routes, r.routes_pg.toFixed(1), r.coverage_edges.map((e) => `${e.edge ? 'EDGE' : 'CONCERN'} ${e.text}`).join(' | '), r.reasons[0]?.text ?? '', statusText(r) ?? '']
         .map(esc)
         .join(','),
     );
@@ -85,6 +86,10 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
         <label className="flex h-8 cursor-pointer items-center gap-2 rounded border border-line-2 bg-panel-2 px-2.5 text-[12.5px] text-ink-2 hover:border-ink-3" title="Players with a real (90%+ confident) edge or weakness in a coverage this week's opponent plays at a top-5 rate">
           <input type="checkbox" checked={edgesOnly} onChange={(e) => update({ edges: e.target.checked ? '1' : undefined })} className="accent-[var(--color-accent)]" />
           Coverage edges only
+        </label>
+        <label className="flex h-8 cursor-pointer items-center gap-2 rounded border border-line-2 bg-panel-2 px-2.5 text-[12.5px] text-ink-2 hover:border-ink-3" title="Players ruled Out on the injury report, or who haven't played in their team's last 2 games">
+          <input type="checkbox" checked={showOut} onChange={(e) => update({ out: e.target.checked ? '1' : undefined })} className="accent-[var(--color-accent)]" />
+          Show injured / inactive
         </label>
         <button type="button" onClick={download} className="ml-auto h-8 rounded border border-line-2 bg-panel-2 px-3 text-[12.5px] text-ink-2 hover:border-ink-3 hover:text-ink">
           Download CSV ↓
@@ -138,6 +143,7 @@ export function SlateView({ index, basis, hash, update }: { index: SeasonIndex; 
                             <span className="block whitespace-nowrap font-semibold">{r.name}</span>
                             <span className="block text-[11px] text-ink-3">
                               {r.role ?? r.pos} · {r.team}
+                              {statusText(r) && <span className={`ml-1.5 rounded px-1 text-[10px] font-semibold ${sidelined(r) ? 'bg-edge-bad/15 text-edge-bad' : 'bg-raise text-ink-2'}`}>{statusText(r)}</span>}
                               <span className="sm:hidden">
                                 {' '}
                                 {r.home ? 'vs' : '@'} {r.opponent}
@@ -230,4 +236,16 @@ function roleMatch(role: string | null | undefined, filter: string): boolean {
   const lo = Number(m[2]);
   if (m[4]) return n >= lo;
   return n >= lo && n <= Number(m[3] ?? m[2]);
+}
+
+/** Out on the injury report, or no snaps in his team's last 2 games. */
+function sidelined(r: SlateRow): boolean {
+  return !!r.status && (!r.status.active || (r.status.injury ?? '').startsWith('Out'));
+}
+
+function statusText(r: SlateRow): string | null {
+  if (!r.status) return null;
+  if (r.status.injury) return r.status.injury;
+  if (!r.status.active) return r.status.last_week ? `Last played wk ${r.status.last_week}` : 'Inactive';
+  return null;
 }

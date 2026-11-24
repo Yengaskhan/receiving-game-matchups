@@ -257,9 +257,14 @@ confidence = 2Φ(|z|) − 1          (two-sided; 90% = a gap this big shows up b
 - **Not used in any calculation:** SEP MS, ADOR, +1/+2/+3 Rate and Neg Rate, which the source doesn't define. They're shown in the player detail table for reference.
 - **Display only:** team-defense PASS %, PROE and PACE, because it's unclear whether they describe the defense's opponents.
 
-## Roles (WR1, WR2, TE1 ...)
+## Roles (WR1, WR2, TE1 ...), routes per game and injuries
 
-Each team's WRs and TEs are ranked by **targets per game this season** (the current season, in every view). Players with fewer than 2 games rank after the regulars, so one big game can't make a WR1. A player traded mid-season is ranked on his current team. The slate's **Role** filter uses this (WR1, WR2, WR3, WR1 + WR2, WR1–WR3, WR4 and below, TE1, TE2 and below), and the role shows under each name.
+From recent games, so an injury or depth-chart change shows up the next week (`pipeline/receiving/usage.py`, nflverse weekly stats, snap counts and injury report):
+
+- **Role:** rank within team and position by targets per game over the team's last 3 games (a missed game counts as 0). Players with no snaps in the team's last 2 games rank last.
+- **Routes per game** (projection): his season rate × his snap share in the last 3 team games / his snap share in the games he played (limited to 0.6–1.4×). Inactive players keep their season rate.
+- **Status:** this week's injury report (Out / Doubtful / Questionable) and "last played week X" for inactive players. The slate hides Out and inactive players unless "Show injured / inactive" is ticked.
+- If nflverse is unavailable, roles and routes per game fall back to the season numbers.
 
 ## Output files (`data/<season>/`)
 

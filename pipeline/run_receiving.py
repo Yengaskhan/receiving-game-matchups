@@ -190,7 +190,21 @@ def load_views(tm) -> tuple:
     s = cur["situation"].df
     rpg = {(r["NAME"], r["TEAM"], r["POS"]): (r["OVERALL_RTE"] / r["G"] if r["G"] else 0.0) for r in s.iter_rows(named=True)}
     ctypes, ct_league = load_coverage_types(views)
-    return views, labels, rpg, team_roles(cur["separation"].df), ctypes, ct_league
+    return views, labels, rpg, team_roles(cur["separation"].df), ctypes, ct_league, s
+
+
+def current_usage(sit: pl.DataFrame, week: int, rpg: dict, roles: dict) -> tuple[dict, dict, dict]:
+    """Roles and routes per game from recent games (receiving/usage.py); season numbers if nflverse fails."""
+    from receiving.usage import apply_usage, recent_usage
+    try:
+        usage = recent_usage(SEASON, week)
+    except Exception as e:
+        print(f"Recent usage unavailable ({e}); roles and routes per game use the season")
+        return roles, rpg, {}
+    r2, rpg2, status = apply_usage(sit.to_dicts(), usage)
+    inactive = sorted(f"{k[0]} ({k[1]})" for k, v in status.items() if not v["active"])
+    print(f"Recent usage: {len(usage)} players from nflverse; {len(inactive)} WR/TE without a snap in their team's last 2 games")
+    return r2, rpg2, status
 
 
 def load_coverage_types(views: dict) -> tuple[dict[tuple, dict], tuple[dict[str, float], float] | None]:
@@ -218,9 +232,10 @@ def load_coverage_types(views: dict) -> tuple[dict[tuple, dict], tuple[dict[str,
 
 def run(week_arg: int | None, out: Path) -> int:
     tm = load_team_map()
-    views, labels, rpg, roles, ctypes, ct_league = load_views(tm)
+    views, labels, rpg, roles, ctypes, ct_league, sit = load_views(tm)
     ctypes_seasons = {str(s) for s in PRIOR_SEASONS}
     week, games, vegas = schedule_week(SEASON, week_arg)
+    roles, rpg, status = current_usage(sit, week, rpg, roles)
     print(f"Vegas lines: {len(vegas)} of {2 * len(games)} teams this week")
     for g in games:
         for t in (g["away"], g["home"]):
@@ -234,9 +249,9 @@ def run(week_arg: int | None, out: Path) -> int:
         for r in reports:
             if r.unmatched_base or r.unmatched_other:
                 print(f"{FILES[r.file]['file']}: {len(r.unmatched_base)} situation rows and {len(r.unmatched_other)} {r.file} rows unmatched")
-        res = build(ex, joined, reports, tm, SEASON, week, games, basis, None if basis == str(SEASON) else rpg, roles,
+        res = build(ex, joined, reports, tm, SEASON, week, games, basis, rpg, roles,
                     # yards/route by coverage type is that season's own data: only in its season's view
-                    ctypes if basis in ctypes_seasons else None, ct_league if basis in ctypes_seasons else None, vegas)
+                    ctypes if basis in ctypes_seasons else None, ct_league if basis in ctypes_seasons else None, vegas, status)
         for c in res["meta"]["checks"]:
             print(f"  ok  {c}")
         report_week(res, week)

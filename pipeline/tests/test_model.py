@@ -303,3 +303,22 @@ def test_track_record_bands():
     assert b["good"]["n"] == 2 and b["good"]["beat"] == 0.5 and b["good"]["vs_normal"] == pytest.approx(0.0)
     assert b["neutral"]["beat"] == 0.0 and b["neutral"]["vs_normal"] == pytest.approx(0.0)
     assert b["tough"]["vs_normal"] == pytest.approx(-0.8)
+
+
+def test_roles_follow_recent_usage():
+    from receiving.usage import apply_usage
+    rows = [{"NAME": "Star", "TEAM": "WAS", "POS": "WR", "G": 3, "OVERALL_RTE": 90, "OVERALL_TPRR": 0.3, "PLAYER_ID": "a"},   # hurt
+            {"NAME": "Backup", "TEAM": "WAS", "POS": "WR", "G": 9, "OVERALL_RTE": 180, "OVERALL_TPRR": 0.15, "PLAYER_ID": "b"},
+            {"NAME": "Other", "TEAM": "WAS", "POS": "WR", "G": 9, "OVERALL_RTE": 200, "OVERALL_TPRR": 0.2, "PLAYER_ID": "c"}]
+    usage = {"a": {"active": False, "last_week": 3, "injury": None, "snap_recent": 0.0, "snap_season": 0.9, "tpg": 0.0},
+             "b": {"active": True, "last_week": 10, "injury": None, "snap_recent": 0.85, "snap_season": 0.68, "tpg": 5.0},
+             "c": {"active": True, "last_week": 10, "injury": "Questionable (Ankle)", "snap_recent": 0.6, "snap_season": 0.6, "tpg": 7.0}}
+    roles, rpg, status = apply_usage(rows, usage)
+    assert roles[("Other", "WAS", "WR")] == "WR1" and roles[("Backup", "WAS", "WR")] == "WR2" and roles[("Star", "WAS", "WR")] == "WR3"
+    assert rpg[("Backup", "WAS", "WR")] == pytest.approx(20 * 0.85 / 0.68)      # promoted: more routes
+    assert rpg[("Star", "WAS", "WR")] == pytest.approx(30)                       # inactive: season rate kept
+    assert status[("Star", "WAS", "WR")]["active"] is False
+    assert status[("Other", "WAS", "WR")]["injury"] == "Questionable (Ankle)"
+    # no nflverse data: season numbers
+    roles, rpg, _ = apply_usage(rows, {})
+    assert rpg[("Star", "WAS", "WR")] == pytest.approx(30) and roles[("Star", "WAS", "WR")] == "WR1"

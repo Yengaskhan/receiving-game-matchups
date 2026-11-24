@@ -115,7 +115,8 @@ def check_inputs(ex: dict[str, Export], joined: pl.DataFrame, reports: list[Join
 def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport], tm: TeamMap,
           season: int, week: int, games: list[dict], basis: str, current_rpg: dict[tuple, float] | None = None,
           roles: dict[tuple, str] | None = None, ctypes: dict[tuple, dict] | None = None,
-          ct_league: tuple[dict[str, float], float] | None = None, vegas: dict[str, dict] | None = None) -> dict:
+          ct_league: tuple[dict[str, float], float] | None = None, vegas: dict[str, dict] | None = None,
+          status: dict[tuple, dict] | None = None) -> dict:
     """vegas: team -> {"imp", "avg", "rel"} for this week's games (Vegas implied team totals)."""
     checks = check_inputs(ex, joined, reports)
 
@@ -125,6 +126,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         if current_rpg is not None:
             p["RPG"] = current_rpg.get((p["NAME"], p["TEAM"], p["POS"]))
         p["ROLE"] = (roles or {}).get((p["NAME"], p["TEAM"], p["POS"]))
+        p["STATUS"] = (status or {}).get((p["NAME"], p["TEAM"], p["POS"]))
         p["CT"] = (ctypes or {}).get((p["NAME"], p["TEAM"], p["POS"]))
     ids = [p["id"] for p in players]
     if len(set(ids)) != len(ids):
@@ -203,7 +205,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
         o = opp.get(p["TEAM_NFL"])
         players_out.append({
             "id": p["id"], "name": p["NAME"], "team": p["TEAM_NFL"], "fp_team": p["TEAM"], "pos": p["POS"], "role": p["ROLE"], "g": p["G"],
-            "routes": p["OVERALL_RTE"], "routes_pg": rpg_of(p),
+            "routes": p["OVERALL_RTE"], "routes_pg": rpg_of(p), "status": p["STATUS"],
             "opponent": o[0] if o else None, "home": o[1] if o else None,
             "overall": {"fp_rr": p["OVERALL_FP_RR"], "adj_fp_rr": pr["adj_overall"], "pos_avg": pr["pos_avg"], "yprr": p["OVERALL_YPRR"],
                         "tprr": p["OVERALL_TPRR"], "win_rate": p["OVERALL_WIN_RATE"], "sep_score": p["OVERALL_SEP_SCORE"],
@@ -256,7 +258,7 @@ def build(ex: dict[str, Export], joined: pl.DataFrame, reports: list[JoinReport]
             continue
         po = pair_out(p["id"], o[0])
         rows.append({"player": p["id"], "name": p["NAME"], "team": p["TEAM_NFL"], "pos": p["POS"], "role": p["ROLE"], "opponent": o[0], "home": o[1],
-                     "game_id": o[2], "routes": p["OVERALL_RTE"], "routes_pg": rpg_of(p),
+                     "game_id": o[2], "routes": p["OVERALL_RTE"], "routes_pg": rpg_of(p), "status": p["STATUS"],
                      "score": po["score"], "delta": po["delta"], "proj": po["proj"], "fp_rr": po["fp_rr"], "adj_fp_rr": profs[p["id"]]["adj_overall"],
                      "fit": po["fit"], "cov_index": po["cov_index"], "align_index": po["align_index"], "parts": po["parts"], "game": po["game"],
                      "player_id": p.get("PLAYER_ID"),

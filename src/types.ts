@@ -29,6 +29,7 @@ export interface Player {
   pos: Pos;
   /** WR1, WR2, ... / TE1, TE2, ... within his team, by targets per game this season. */
   role?: string | null;
+  status?: PlayerStatus | null;
   g: number;
   routes: number;
   routes_pg: number;
@@ -124,8 +125,10 @@ export interface SlateRow {
   name: string;
   team: string;
   pos: Pos;
-  /** WR1, WR2, ... / TE1, TE2, ... within his team, by targets per game this season. */
+  /** WR1, WR2, ... / TE1, TE2, ... within his team, by targets per game in the team's last 3 games. */
   role?: string | null;
+  /** Recent usage and this week's injury report (nflverse). */
+  status?: PlayerStatus | null;
   opponent: string;
   home: boolean;
   game_id: string;
@@ -148,6 +151,8 @@ export interface SlateRow {
   flags: Flag[];
   coverage_edges: CoverageEdge[];
 }
+
+export interface PlayerStatus { active: boolean; last_week: number | null; injury: string | null; snap_recent: number | null; tpg_recent: number | null }
 
 export interface GameEnv { imp: number; avg: number; rel: number }
 
