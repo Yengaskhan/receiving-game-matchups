@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { latestIndex, loadCore, loadWeek, type Core } from './data';
+import { CompareView } from './CompareView';
 import { DefenseView } from './DefenseView';
 import { formatAsOf } from './format';
 import { PlayerView } from './PlayerView';
@@ -16,16 +17,17 @@ const embedded = (() => {
   }
 })();
 
-export type Tab = 'player' | 'slate' | 'defense' | 'track';
+export type Tab = 'player' | 'slate' | 'compare' | 'defense' | 'track';
 const TABS: [Tab, string][] = [
   ['slate', 'Slate Rankings'],
+  ['compare', 'Compare Players'],
   ['player', 'Player vs Defense'],
   ['defense', 'Defense Profiles'],
   ['track', 'Track Record'],
 ];
 
 /** The view lives in the URL hash so a link goes straight to it. */
-export type HashState = Partial<Record<'tab' | 'player' | 'opp' | 'week' | 'team' | 'pos' | 'min' | 'filter' | 'edges' | 'basis' | 'role' | 'tw' | 'out', string>>;
+export type HashState = Partial<Record<'tab' | 'player' | 'opp' | 'week' | 'team' | 'pos' | 'min' | 'filter' | 'edges' | 'basis' | 'role' | 'tw' | 'out' | 'cmp', string>>;
 
 function readHash(): HashState {
   return Object.fromEntries(new URLSearchParams(window.location.hash.slice(1))) as HashState;
@@ -148,6 +150,8 @@ export default function ReceivingApp() {
                 <PlayerView core={core} season={index.season} basis={basis} week={currentWeek} hash={hash} update={update} />
               ) : tab === 'slate' ? (
                 <SlateView index={index} basis={basis} hash={hash} update={update} />
+              ) : tab === 'compare' ? (
+                <CompareView index={index} basis={basis} hash={hash} update={update} />
               ) : tab === 'track' ? (
                 <TrackRecordView season={index.season} hash={hash} update={update} />
               ) : (

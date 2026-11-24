@@ -257,6 +257,10 @@ confidence = 2Φ(|z|) − 1          (two-sided; 90% = a gap this big shows up b
 - **Not used in any calculation:** SEP MS, ADOR, +1/+2/+3 Rate and Neg Rate, which the source doesn't define. They're shown in the player detail table for reference.
 - **Display only:** team-defense PASS %, PROE and PACE, because it's unclear whether they describe the defense's opponents.
 
+## Using the grade: Compare Players
+
+The tool is for start/sit and DFS decisions. The grade (Matchup Score) is the expected change vs a player's own normal week, so it decides between players whose normal weeks are close. The Compare Players tab handles the rest: it ranks the chosen players by matchup-adjusted projection (normal week × matchup), calls it "the matchup decides" when their normal weeks are within 12%, and breaks a near tie (under 0.3 points) with the better grade. Vegas stays in the grade: it predicted results in the 2025 test, and the grade is meant to be the decision, not a layer on someone else's projection.
+
 ## Roles (WR1, WR2, TE1 ...), routes per game and injuries
 
 From recent games, so an injury or depth-chart change shows up the next week (`pipeline/receiving/usage.py`, nflverse weekly stats, snap counts and injury report):

@@ -70,6 +70,9 @@ export function PlayerView({ core, season, basis, week, hash, update }: { core: 
         <h2 className="text-[18px] font-semibold">{player.name}</h2>
         <span className="text-[13px] text-ink-2">
           {player.role ?? player.pos} · {player.team} · {n0(player.routes)} routes in {n0(player.g)} games ({n1(player.routes_pg)} per game)
+          <button type="button" onClick={() => update({ tab: 'compare', cmp: player.id })} className="ml-2 rounded border border-line-2 px-1.5 text-[11px] text-ink-2 hover:text-ink">
+            Compare ⇄
+          </button>
           {player.status?.injury && <span className="ml-2 rounded bg-edge-bad/15 px-1.5 text-[11px] font-semibold text-edge-bad">{player.status.injury}</span>}
           {player.status && !player.status.active && (
             <span className="ml-2 rounded bg-edge-bad/15 px-1.5 text-[11px] font-semibold text-edge-bad">Hasn't played since week {player.status.last_week ?? '—'}</span>
