@@ -8,8 +8,11 @@ games before this week:
   active                  he played in at least one of the team's last ACTIVE_GAMES games
   injury                  this week's injury-report status (Out / Doubtful / Questionable), if any
 
+  roster status          injured reserve, practice squad, released, suspended (nflverse weekly rosters):
+                          shown as "Out (injured reserve)" etc., since the injury report skips them
+
 Roles (WR1, WR2, TE1 ...) rank recent targets per game within team and position; players who aren't
-active rank last. Routes per game for the projection scale his season rate by his recent snap share vs
+active or are ruled out rank last. Routes per game for the projection scale his season rate by his recent snap share vs
 his snap share in the games he played this season (clamped), so a promoted player's projection rises.
 Anything nflverse doesn't have falls back to the season numbers.
 """
@@ -19,6 +22,8 @@ import polars as pl
 RECENT_GAMES = 3
 ACTIVE_GAMES = 2
 RPG_SCALE_LIMITS = (0.6, 1.4)
+# nflverse weekly roster status codes that mean he can't play this week.
+ROSTER_OUT = {"RES": "injured reserve", "DEV": "practice squad", "CUT": "released", "RET": "retired", "EXE": "exempt list", "SUS": "suspended"}
 
 
 def recent_usage(season: int, week: int) -> dict[str, dict]:
@@ -64,7 +69,25 @@ def recent_usage(season: int, week: int) -> dict[str, dict]:
                 out[r["gsis_id"]]["injury"] = r["report_status"] + (f" ({r['report_primary_injury']})" if r["report_primary_injury"] else "")
     except Exception as e:  # the injury report is optional context
         print(f"Injury report unavailable: {e}")
+
+    # Roster status: injured reserve and other inactive lists never appear on the weekly injury report.
+    try:
+        ro = nfl.load_rosters_weekly([season]).filter(pl.col("week") <= week).sort("week")
+        latest = ro.group_by("gsis_id").agg(pl.col("status").last(), pl.col("week").last())
+        for r in latest.iter_rows(named=True):
+            label = ROSTER_OUT.get(r["status"])
+            if label and r["gsis_id"] in out:
+                out[r["gsis_id"]]["injury"] = f"Out ({label})"
+    except Exception as e:
+        print(f"Roster status unavailable: {e}")
     return out
+
+
+def available(u: dict | None) -> bool:
+    """Played recently and not ruled out (injury report Out or on a reserve list)."""
+    if not u:
+        return True
+    return u["active"] and not (u["injury"] or "").startswith("Out")
 
 
 def season_tgt(r: dict) -> float:
@@ -93,7 +116,7 @@ def apply_usage(players: list[dict], usage: dict[str, dict]) -> tuple[dict[tuple
         groups.setdefault((team, r["POS"]), []).append((r, u))
     roles = {}
     for (_t, pos), rs in groups.items():
-        rs.sort(key=lambda x: (not (x[1]["active"] if x[1] else True),
+        rs.sort(key=lambda x: (not available(x[1]),
                                -(x[1]["tpg"] if x[1] else 0.0),
                                -(season_tgt(x[0]) / x[0]["G"] if x[0]["G"] else 0)))
         for i, (r, _u) in enumerate(rs, start=1):

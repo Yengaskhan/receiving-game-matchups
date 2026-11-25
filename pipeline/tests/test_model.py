@@ -322,3 +322,14 @@ def test_roles_follow_recent_usage():
     # no nflverse data: season numbers
     roles, rpg, _ = apply_usage(rows, {})
     assert rpg[("Star", "WAS", "WR")] == pytest.approx(30) and roles[("Star", "WAS", "WR")] == "WR1"
+
+
+def test_out_players_rank_last():
+    from receiving.usage import apply_usage
+    rows = [{"NAME": "Puka", "TEAM": "LA", "POS": "WR", "G": 9, "OVERALL_RTE": 270, "OVERALL_TPRR": 0.3, "PLAYER_ID": "a"},
+            {"NAME": "Next", "TEAM": "LA", "POS": "WR", "G": 9, "OVERALL_RTE": 180, "OVERALL_TPRR": 0.15, "PLAYER_ID": "b"}]
+    usage = {"a": {"active": True, "last_week": 9, "injury": "Out (injured reserve)", "snap_recent": 0.6, "snap_season": 0.9, "tpg": 10.0},
+             "b": {"active": True, "last_week": 10, "injury": None, "snap_recent": 0.7, "snap_season": 0.6, "tpg": 3.0}}
+    roles, _, status = apply_usage(rows, usage)
+    assert roles[("Next", "LA", "WR")] == "WR1" and roles[("Puka", "LA", "WR")] == "WR2"
+    assert status[("Puka", "LA", "WR")]["injury"] == "Out (injured reserve)"
